@@ -124,7 +124,7 @@ schedule.every().day.at(oyasumi2).do(job5)
 async def teiki():
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        await asyncio.sleep(60)
 
 
 async def runner():
@@ -146,7 +146,8 @@ async def runner():
                     await on_note(note)
                 if data["body"]["type"] == "followed":
                     user = data["body"]["body"]
-                    await on_follow(user)
+                    await on_follow(user)        
+            await asyncio.sleep(1)
 
 
 async def on_note(note):
