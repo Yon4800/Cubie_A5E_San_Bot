@@ -69,12 +69,17 @@ async def runner():
     async with websockets.connect(WS_URL) as ws:
         await ws.send(
             json.dumps(
-                {"type": "connect", "body": {"channel": "homeTimeline", "id": "test"}}
+                {"type": "connect", "body": {"channel": "homeTimeline", "id": "homes"}}
+            )
+        )
+        await ws.send(
+            json.dumps(
+                {"type": "connect", "body": {"channel": "main", "id": "tuuti"}}
             )
         )
         while True:
             data = json.loads(await ws.recv())
-            print(data)
+            ## print(data)
             if data["type"] == "channel":
                 if data["body"]["type"] == "note":
                     note = data["body"]["body"]
@@ -88,46 +93,55 @@ async def runner():
                     "おはよう！朝ごはんは重要だよ！ちゃんと食べようね！え？私は何を食べるのだって？で、、電気...(5V2Aしか食べない...少食だから...)",
                     visibility=NoteVisibility.HOME,
                 )
+                break
             if now.hour == ohiru and now.minute == ohirut:
                 mk.notes_create(
                     "お昼の時間だよ？何を食べるって？うーん...私は電気しか食べないなぁ、少食だし...(AIでは結構食ってるけど...)",
                     visibility=NoteVisibility.HOME,
                 )
+                break
             if now.hour == oyatsu and now.minute == oyatsut:
                 mk.notes_create(
                     "おやつの時間だよ！私は何を食べよう...うーん...電気...()",
                     visibility=NoteVisibility.HOME,
                 )
+                break
             if now.hour == yuuhann and now.minute == yuuhannt:
                 mk.notes_create(
                     "夕飯の時間だよ！！！私は電気しか食べないよ？しかもあんま食べないし...",
                     visibility=NoteVisibility.HOME,
                 )
+                break
             if now.hour == oyasumi and now.minute == oyasumit:
                 mk.notes_create(
                     "そろそろ寝る時間だよ！私は寝ないけどね...:neko_tired2: を...をねこちゃん、、、いつの間に...ん、、、ん、、、ん、、、、、、:nginx_nnginxi:",
                     visibility=NoteVisibility.HOME,
                 )
+                break
             if now.hour == oyasumi and now.minute == oyasumit:
                 mk.notes_create(
                     "そろそろ寝ないとやばいよ！！！え？私？そもそも寝れない...寝ると終わる...:",
                     visibility=NoteVisibility.HOME,
                 )
+                break
 
 
 async def on_note(note):
     if note.get("mentions"):
         if MY_ID in note["mentions"]:
+            mk.notes_reactions_create(
+                note_id=note["id"], reaction=":fast_rotating_think:"
+            )
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=note["text"],
                 config=types.GenerateContentConfig(
                     system_instruction=seikaku + "\n" + note["user"]["name"],
-                    max_output_tokens=55,
+                    max_output_tokens=1666,
                 ),
             )
             mk.notes_create(
-                text=response, reply_id=note["id"], visibility=NoteVisibility.HOME
+                text=response.text, reply_id=note["id"], visibility=NoteVisibility.HOME
             )
 
 
@@ -138,4 +152,4 @@ async def on_follow(user):
         pass
 
 
-asyncio.get_event_loop().run_until_complete(runner())
+asyncio.run(runner())
