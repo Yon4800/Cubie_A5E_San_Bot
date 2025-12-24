@@ -2,3 +2,4 @@ Misskey.py
 websockets
 python-dotenv
 google-genai
+schedule

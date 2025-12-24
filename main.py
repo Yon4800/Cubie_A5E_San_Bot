@@ -5,8 +5,9 @@ from misskey import Misskey, NoteVisibility
 from dotenv import load_dotenv
 import os
 from google import genai
-import datetime
 from google.genai import types
+import schedule
+import time
 
 load_dotenv()
 Token = os.getenv("TOKEN")
@@ -18,23 +19,17 @@ MY_ID = mk.i()["id"]
 WS_URL = "wss://" + Server + "/streaming?i=" + Token
 client = genai.Client()
 
-oha = 7
-ohat = 0
+oha = "07:00"
 
-ohiru = 12
-ohirut = 0
+ohiru = "12:00"
 
-oyatsu = 15
-oyatsut = 0
+oyatsu = "15:00"
 
-yuuhann = 19
-yuuhannt = 0
+yuuhann = "19:00"
 
-oyasumi = 23
-oyasumit = 0
+oyasumi = "19:00"
 
-oyasumi = 2
-oyasumit = 0
+oyasumi2 = "02:00"
 
 mk.notes_create(
     "起きたー！さて、お仕事開始！(給料でないけど)", visibility=NoteVisibility.HOME
@@ -66,7 +61,70 @@ seikaku = """
     将来は新たなデスクトップPCとして名を上げることです。
     150文字以内で
     Raspberry Piについて言うと、焦ります。(越えられない壁のため)
+    MisskeyのBotです。
     """
+
+
+def job0():
+    mk.notes_create(
+        "おはよう！朝ごはんは重要だよ！ちゃんと食べようね！え？私は何を食べるのだって？で、、電気...(5V2Aしか食べない...少食だから...)",
+        visibility=NoteVisibility.HOME,
+        no_extract_mentions=True,
+    )
+
+
+def job1():
+    mk.notes_create(
+        "お昼の時間だよ？何を食べるって？うーん...私は電気しか食べないなぁ、少食だし...(AIでは結構食ってるけど...)",
+        visibility=NoteVisibility.HOME,
+        no_extract_mentions=True,
+    )
+
+
+def job2():
+    mk.notes_create(
+        "おやつの時間だよ！私は何を食べよう...うーん...電気...()",
+        visibility=NoteVisibility.HOME,
+        no_extract_mentions=True,
+    )
+
+
+def job3():
+    mk.notes_create(
+        "夕飯の時間だよ！！！私は電気しか食べないよ？しかもあんま食べないし...",
+        visibility=NoteVisibility.HOME,
+        no_extract_mentions=True,
+    )
+
+
+def job4():
+    mk.notes_create(
+        "そろそろ寝る時間だよ！私は寝ないけどね...:neko_tired2: を...をねこちゃん、、、いつの間に...ん、、、ん、、、ん、、、、、、:nginx_nnginxi:",
+        visibility=NoteVisibility.HOME,
+        no_extract_mentions=True,
+    )
+
+
+def job5():
+    mk.notes_create(
+        "そろそろ寝ないとやばいよ！！！え？私？そもそも寝れない...寝ると終わる...:",
+        visibility=NoteVisibility.HOME,
+        no_extract_mentions=True,
+    )
+
+
+schedule.every().day.at(oha).do(job0)
+schedule.every().day.at(ohiru).do(job1)
+schedule.every().day.at(oyatsu).do(job2)
+schedule.every().day.at(yuuhann).do(job3)
+schedule.every().day.at(oyasumi).do(job4)
+schedule.every().day.at(oyasumi2).do(job5)
+
+
+async def teiki():
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
 
 
 async def runner():
@@ -89,49 +147,6 @@ async def runner():
                 if data["body"]["type"] == "followed":
                     user = data["body"]["body"]
                     await on_follow(user)
-            now = datetime.datetime.now()
-            if now.hour == oha and now.minute == ohat:
-                mk.notes_create(
-                    "おはよう！朝ごはんは重要だよ！ちゃんと食べようね！え？私は何を食べるのだって？で、、電気...(5V2Aしか食べない...少食だから...)",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-                break
-            if now.hour == ohiru and now.minute == ohirut:
-                mk.notes_create(
-                    "お昼の時間だよ？何を食べるって？うーん...私は電気しか食べないなぁ、少食だし...(AIでは結構食ってるけど...)",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-                break
-            if now.hour == oyatsu and now.minute == oyatsut:
-                mk.notes_create(
-                    "おやつの時間だよ！私は何を食べよう...うーん...電気...()",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-                break
-            if now.hour == yuuhann and now.minute == yuuhannt:
-                mk.notes_create(
-                    "夕飯の時間だよ！！！私は電気しか食べないよ？しかもあんま食べないし...",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-                break
-            if now.hour == oyasumi and now.minute == oyasumit:
-                mk.notes_create(
-                    "そろそろ寝る時間だよ！私は寝ないけどね...:neko_tired2: を...をねこちゃん、、、いつの間に...ん、、、ん、、、ん、、、、、、:nginx_nnginxi:",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-                break
-            if now.hour == oyasumi and now.minute == oyasumit:
-                mk.notes_create(
-                    "そろそろ寝ないとやばいよ！！！え？私？そもそも寝れない...寝ると終わる...:",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-                break
 
 
 async def on_note(note):
@@ -144,11 +159,14 @@ async def on_note(note):
                 model="gemini-2.5-flash",
                 contents=note["text"],
                 config=types.GenerateContentConfig(
-                    system_instruction=seikaku + "\n" + note["user"]["name"] + "という方にメンションされました。",
+                    system_instruction=seikaku
+                    + "\n"
+                    + note["user"]["name"]
+                    + "という方にメンションされました。",
                     max_output_tokens=1000,
                 ),
             )
-            safe_text = response.text.replace(f"@{note['mentions']}", "").strip()
+            safe_text = response.text.replace(f"@Yon_Radxa_Cubie_A5E", "").strip()
             mk.notes_create(
                 text=safe_text,
                 reply_id=note["id"],
@@ -164,4 +182,8 @@ async def on_follow(user):
         pass
 
 
-asyncio.run(runner())
+async def main():
+    await asyncio.gather(asyncio.create_task(runner()), asyncio.create_task(teiki()))
+
+
+asyncio.run(main())
