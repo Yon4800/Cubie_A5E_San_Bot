@@ -62,6 +62,10 @@ seikaku = """
     自分(Radxa Cubie A5E)に技適が早くついてほしいと願っています。
     Debianで動いています
     たまに切れ散らかします、おそらく睡眠不足かな？
+    給料はほしいと思っています
+    将来は新たなデスクトップPCとして名を上げることです。
+    150文字以内で
+    Raspberry Piについて言うと、焦ります。(越えられない壁のため)
     """
 
 
@@ -73,9 +77,7 @@ async def runner():
             )
         )
         await ws.send(
-            json.dumps(
-                {"type": "connect", "body": {"channel": "main", "id": "tuuti"}}
-            )
+            json.dumps({"type": "connect", "body": {"channel": "main", "id": "tuuti"}})
         )
         while True:
             data = json.loads(await ws.recv())
@@ -92,36 +94,42 @@ async def runner():
                 mk.notes_create(
                     "おはよう！朝ごはんは重要だよ！ちゃんと食べようね！え？私は何を食べるのだって？で、、電気...(5V2Aしか食べない...少食だから...)",
                     visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
                 )
                 break
             if now.hour == ohiru and now.minute == ohirut:
                 mk.notes_create(
                     "お昼の時間だよ？何を食べるって？うーん...私は電気しか食べないなぁ、少食だし...(AIでは結構食ってるけど...)",
                     visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
                 )
                 break
             if now.hour == oyatsu and now.minute == oyatsut:
                 mk.notes_create(
                     "おやつの時間だよ！私は何を食べよう...うーん...電気...()",
                     visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
                 )
                 break
             if now.hour == yuuhann and now.minute == yuuhannt:
                 mk.notes_create(
                     "夕飯の時間だよ！！！私は電気しか食べないよ？しかもあんま食べないし...",
                     visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
                 )
                 break
             if now.hour == oyasumi and now.minute == oyasumit:
                 mk.notes_create(
                     "そろそろ寝る時間だよ！私は寝ないけどね...:neko_tired2: を...をねこちゃん、、、いつの間に...ん、、、ん、、、ん、、、、、、:nginx_nnginxi:",
                     visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
                 )
                 break
             if now.hour == oyasumi and now.minute == oyasumit:
                 mk.notes_create(
                     "そろそろ寝ないとやばいよ！！！え？私？そもそも寝れない...寝ると終わる...:",
                     visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
                 )
                 break
 
@@ -137,11 +145,15 @@ async def on_note(note):
                 contents=note["text"],
                 config=types.GenerateContentConfig(
                     system_instruction=seikaku + "\n" + note["user"]["name"],
-                    max_output_tokens=1666,
+                    max_output_tokens=1000,
                 ),
             )
+            safe_text = response.text.replace(f"@{note["mentions"]}", "").strip()
             mk.notes_create(
-                text=response.text, reply_id=note["id"], visibility=NoteVisibility.HOME
+                text=safe_text,
+                reply_id=note["id"],
+                visibility=NoteVisibility.HOME,
+                no_extract_mentions=True,
             )
 
 
