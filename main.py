@@ -76,7 +76,7 @@ seikaku = """
 
 def job0():
     mk.notes_create(
-        "おはよう！朝ごはんは重要だよ！ちゃんと食べようね！え？私は何を食べるのだって？で、、電気...(5V2Aしか食べない...少食だから...)",
+        "おはよう！朝ごはんは重要だよ！ちゃんと食べようね！え？私は何を食べるのだって？で、、、電気...(5V2Aしか食べない...少食だから...)",
         visibility=NoteVisibility.HOME,
         no_extract_mentions=True,
     )
@@ -124,7 +124,7 @@ def job4():
 
 def job5():
     mk.notes_create(
-        "そろそろ寝ないとやばいよ！！！え？私？そもそも寝れない...寝ると終わる...:",
+        "そろそろ寝ないとやばいよ！！！え？私？そもそも寝れない...寝ると終わる...",
         visibility=NoteVisibility.HOME,
         no_extract_mentions=True,
     )
@@ -188,7 +188,7 @@ async def on_note(note):
                         },
                         {"role": "user", "content": note["text"].replace(f"+LLM", "")},
                     ],
-                    max_completion_tokens=175,
+                    max_completion_tokens=200,
                 )
                 safe_text = (
                     response.choices[0]
