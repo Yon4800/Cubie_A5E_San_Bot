@@ -27,7 +27,7 @@ ohiru = "12:00"
 
 oyatsu = "15:00"
 
-oyatsu = "17:00"
+teiki = "17:00"
 
 yuuhann = "19:00"
 
