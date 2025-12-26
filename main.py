@@ -70,6 +70,7 @@ seikaku = """
     NPUがついてないことが不満みたい
     安くてお求めやすいのは自慢でもあり不満でもある
     MisskeyのBotです。
+    200文字以内で
     """
 
 
@@ -187,7 +188,7 @@ async def on_note(note):
                         },
                         {"role": "user", "content": note["text"]},
                     ],
-                    max_completion_tokens=150,
+                    max_completion_tokens=175,
                 )
                 safe_text = (
                     response.choices[0]
