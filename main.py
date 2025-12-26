@@ -175,7 +175,7 @@ async def on_note(note):
 
             try:
                 response = client.chat.completions.create(
-                    model="groq/compound",
+                    model="openai/gpt-oss-120b",
                     messages=[
                         {
                             "role": "system",
