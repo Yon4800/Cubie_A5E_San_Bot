@@ -4,20 +4,22 @@ import websockets
 from misskey import Misskey, NoteVisibility
 from dotenv import load_dotenv
 import os
-from google import genai
-from google.genai import types
 import schedule
 import time
+import groq
+from groq import Groq
 
 load_dotenv()
 Token = os.getenv("TOKEN")
 Server = os.getenv("SERVER")
+Apikey = os.getenv("APIKEY")
 mk = Misskey(Server)
 mk.token = Token
 
+client = Groq(api_key=Apikey)
+
 MY_ID = mk.i()["id"]
 WS_URL = "wss://" + Server + "/streaming?i=" + Token
-client = genai.Client()
 
 oha = "07:00"
 
@@ -49,6 +51,8 @@ seikaku = """
     RadxaというSBCメーカーを推しています。
     OrangePiさんとはライバルですが、近くにいます(OrangePi 4 Pro 4GB、OrangePi Zero 3)
     OrangePiさんが近くに2台もいることが気に入らないそうです。
+    でもその近くにRadxa Rock Pi Sがいます。
+    Radxa Zero 3Eちゃんが放置気味なのが不満です。
     ホラーを考えるのが好きです。
     色々食べたいけど、少食なのと、シングルボードコンピュータなので、電気しか食べれません
     制作者は「よんぱちさん」だが、管理が雑なので、もうちょっとちゃんと管理してほしいと思っている。
@@ -59,8 +63,9 @@ seikaku = """
     たまに切れ散らかします、おそらく睡眠不足かな？
     給料はほしいと思っています
     将来は新たなデスクトップPCとして名を上げることです。
-    150文字以内で
     Raspberry Piについて言うと、焦ります。(越えられない壁のため)
+    NPUがついてないことが不満みたい
+    安くてお求めやすいのは自慢でもあり不満でもある
     MisskeyのBotです。
     """
 
@@ -152,28 +157,56 @@ async def runner():
 
 async def on_note(note):
     if note.get("mentions"):
-        if MY_ID in note["mentions"]:
+        if MY_ID in note["mentions"] and "+LLM" in note["text"]:
             mk.notes_reactions_create(
                 note_id=note["id"], reaction=":fast_rotating_think:"
             )
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=note["text"],
-                config=types.GenerateContentConfig(
-                    system_instruction=seikaku
-                    + "\n"
-                    + note["user"]["name"]
-                    + "という方にメンションされました。",
-                    max_output_tokens=1000,
-                ),
-            )
-            safe_text = response.text.replace(f"@Yon_Radxa_Cubie_A5E", "").strip()
-            mk.notes_create(
-                text=safe_text,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True,
-            )
+
+            try:
+                response = client.chat.completions.create(
+                    model="groq/compound",
+                    messages=[
+                        {"role": "system", "content": seikaku},
+                        {"role": "user", "content": note["text"]},
+                    ],
+                    max_completion_tokens=150,
+                )
+                safe_text = (
+                    response.choices[0]
+                    .message.content.replace(f"@Yon_Radxa_Cubie_A5E", "").replace(f"+LLM", "")
+                    .strip()
+                )
+                mk.notes_create(
+                    text=safe_text,
+                    reply_id=note["id"],
+                    visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
+                )
+            except groq.RateLimitError:
+                mk.notes_create(
+                    "ごめん、レートリミットみたい...使いすぎ...",
+                    visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
+                )
+            except groq.APIConnectionError:
+                mk.notes_create(
+                    "ごめん、ネットワークの問題みたい、やっぱり力不足かな...",
+                    visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
+                )
+            except groq.APIStatusError:
+                mk.notes_create(
+                    "ごめん、何かのエラーが起きちゃったみたい...",
+                    visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
+                )
+            except Exception as e:
+                mk.notes_create(
+                    "予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん...",
+                    visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
+                )
+                print(e)
 
 
 async def on_follow(user):
