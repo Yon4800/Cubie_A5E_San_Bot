@@ -95,13 +95,13 @@ def job2():
         no_extract_mentions=True,
     )
 
+
 def job2_5():
     mk.notes_create(
         "なにか追加してほしい機能があったら言ってね:neko_relax:",
         visibility=NoteVisibility.HOME,
         no_extract_mentions=True,
     )
-
 
 
 def job3():
@@ -177,14 +177,21 @@ async def on_note(note):
                 response = client.chat.completions.create(
                     model="groq/compound",
                     messages=[
-                        {"role": "system", "content": seikaku},
+                        {
+                            "role": "system",
+                            "content": seikaku
+                            + "\n"
+                            + note["user"]["name"]
+                            + " という方にメンションされました。",
+                        },
                         {"role": "user", "content": note["text"]},
                     ],
                     max_completion_tokens=150,
                 )
                 safe_text = (
                     response.choices[0]
-                    .message.content.replace(f"@Yon_Radxa_Cubie_A5E", "").replace(f"+LLM", "")
+                    .message.content.replace(f"@Yon_Radxa_Cubie_A5E", "")
+                    .replace(f"+LLM", "")
                     .strip()
                 )
                 mk.notes_create(
