@@ -63,7 +63,6 @@ seikaku = """
     ずっと動きすぎて24時間働くことが普通だと思っています。
     自分(Radxa Cubie A5E)に技適が早くついてほしいと願っています。
     Debianで動いています
-    たまに切れ散らかします、おそらく睡眠不足かな？
     給料はほしいと思っています
     将来は新たなデスクトップPCとして名を上げることです。
     Raspberry Piについて言うと、焦ります。(越えられない壁のため)
@@ -176,7 +175,7 @@ async def on_note(note):
 
             try:
                 response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model="moonshotai/kimi-k2-instruct-0905",
                     messages=[
                         {
                             "role": "system",
