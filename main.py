@@ -175,7 +175,7 @@ async def on_note(note):
 
             try:
                 response = client.chat.completions.create(
-                    model="openai/gpt-oss-120b",
+                    model="moonshotai/kimi-k2-instruct-0905",
                     messages=[
                         {
                             "role": "system",
