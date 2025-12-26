@@ -8,6 +8,7 @@ import schedule
 import time
 import groq
 from groq import Groq
+import random
 
 load_dotenv()
 Token = os.getenv("TOKEN")
@@ -175,7 +176,7 @@ async def on_note(note):
 
             try:
                 response = client.chat.completions.create(
-                    model="qwen/qwen3-32b",
+                    model="llama-3.3-70b-versatile",
                     messages=[
                         {
                             "role": "system",
