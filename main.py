@@ -190,7 +190,12 @@ async def on_note(note):
                             + note["user"]["name"]
                             + " という方にメンションされました。",
                         },
-                        {"role": "user", "content": note["text"].replace(f"+LLM", "").replace(f"@{note["user"]["username"]}", "")},
+                        {
+                            "role": "user",
+                            "content": note["text"]
+                            .replace(f"+LLM", "")
+                            .replace(f"@" + note["user"]["username"], ""),
+                        },
                     ],
                     max_completion_tokens=200,
                 )
