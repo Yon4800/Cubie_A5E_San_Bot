@@ -5,7 +5,7 @@ from misskey import Misskey, NoteVisibility
 from dotenv import load_dotenv
 import os
 import schedule
-import time
+import datetime
 import groq
 from groq import Groq
 import random
@@ -182,7 +182,7 @@ async def on_note(note):
             )
 
             try:
-                current_time = time.strftime("%H:%M")
+                current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
                 response = client.chat.completions.create(
                     model="moonshotai/kimi-k2-instruct-0905",
                     messages=[
