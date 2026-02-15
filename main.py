@@ -6,8 +6,7 @@ from dotenv import load_dotenv
 import os
 import schedule
 from datetime import datetime
-import groq
-from groq import Groq
+from openrouter import OpenRouter
 import random
 
 load_dotenv()
@@ -16,8 +15,6 @@ Server = os.getenv("SERVER")
 Apikey = os.getenv("APIKEY")
 mk = Misskey(Server)
 mk.token = Token
-
-client = Groq(api_key=Apikey)
 
 MY_ID = mk.i()["id"]
 WS_URL = "wss://" + Server + "/streaming?i=" + Token
@@ -74,10 +71,9 @@ seikaku = """
     NPUがついてないことが不満みたい
     安くてお求めやすいのは自慢でもあり不満でもある
     アリエクで買った回るファンで動いてる。
-    近くに東武8000型のプラレールがあることを謎に思っている
     下のIntel Core i3-6100TのPCが何に使われているのか気になっている。
     MisskeyのBotです。
-    200文字以内で
+    300文字以内で
     メンション(@)はしない
     """
 
@@ -185,57 +181,39 @@ async def on_note(note):
 
             try:
                 current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
-                response = client.chat.completions.create(
-                    model="moonshotai/kimi-k2-instruct-0905",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": seikaku
-                            + "\n現在時刻は"
-                            + current_time
-                            + "です。"
-                            + "\n"
-                            + note["user"]["name"]
-                            + " という方にメンションされました。",
-                        },
-                        {
-                            "role": "user",
-                            "content": note["text"]
-                            .replace(f"+LLM", "")
-                            .replace(f"@" + note["user"]["username"], ""),
-                        },
-                    ],
-                    max_completion_tokens=200,
-                )
-                safe_text = (
-                    response.choices[0]
-                    .message.content.replace(f"@Yon_Radxa_Cubie_A5E", "")
-                    .strip()
-                )
-                mk.notes_create(
-                    text=safe_text,
-                    reply_id=note["id"],
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-            except groq.RateLimitError:
-                mk.notes_create(
-                    "ごめん、レートリミットみたい...使いすぎ...",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-            except groq.APIConnectionError:
-                mk.notes_create(
-                    "ごめん、ネットワークの問題みたい、やっぱり力不足かな...",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
-            except groq.APIStatusError:
-                mk.notes_create(
-                    "ごめん、何かのエラーが起きちゃったみたい...",
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True,
-                )
+                with OpenRouter(api_key=Apikey) as client:
+                    response = client.chat.send(
+                        model="nvidia/nemotron-3-nano-30b-a3b:free",
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": seikaku
+                                + "\n現在時刻は"
+                                + current_time
+                                + "です。"
+                                + "\n"
+                                + note["user"]["name"]
+                                + " という方にメンションされました。",
+                            },
+                            {
+                                "role": "user",
+                                "content": note["text"]
+                                .replace(f"+LLM", "")
+                                .replace(f"@" + note["user"]["username"], ""),
+                            },
+                        ],
+                    )
+                    safe_text = (
+                        response.choices[0]
+                        .message.content.replace(f"@Yon_Radxa_Cubie_A5E", "")
+                        .strip()
+                    )
+                    mk.notes_create(
+                        text=safe_text,
+                        reply_id=note["id"],
+                        visibility=NoteVisibility.HOME,
+                        no_extract_mentions=True,
+                    )
             except Exception as e:
                 mk.notes_create(
                     "予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん...",
