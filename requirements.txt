@@ -3,3 +3,4 @@ websockets
 python-dotenv
 huggingface_hub
 schedule
+requests
