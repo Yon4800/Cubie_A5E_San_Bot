@@ -1,6 +1,6 @@
 Misskey.py
 websockets
 python-dotenv
-huggingface_hub
+groq
 schedule
 requests

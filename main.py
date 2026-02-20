@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import os
 import schedule
 from datetime import datetime
-from huggingface_hub import InferenceClient
+from groq import Groq
 import random
 import re
 
@@ -17,7 +17,7 @@ Apikey = os.getenv("APIKEY")
 mk = Misskey(Server)
 mk.token = Token
 
-client = InferenceClient(api_key=os.environ["APIKEY"])
+client = Groq(api_key=os.environ["APIKEY"])
 
 MY_ID = mk.i()["id"]
 WS_URL = "wss://" + Server + "/streaming?i=" + Token
@@ -241,7 +241,7 @@ async def on_note(note):
                 system_message = seikaku + "\n現在時刻は" + current_time + "です。\n" + note["user"]["name"] + " という方にメンションされました。"
                 
                 response = client.chat.completions.create(
-                    model="moonshotai/Kimi-K2-Instruct",
+                    model="moonshotai/kimi-k2-instruct-0905",
                     messages=[{"role": "system", "content": system_message}] + conversation_messages,
                 )
                 
