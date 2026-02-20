@@ -185,7 +185,7 @@ async def on_note(note):
             try:
                 current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
                 response = client.chat.completions.create(
-                    model="nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+                    model="zai-org/GLM-5",
                     messages=[
                         {
                             "role": "system",
