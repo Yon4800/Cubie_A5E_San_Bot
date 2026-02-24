@@ -192,8 +192,8 @@ def get_conversation_history(note_id: str, max_depth: int = 10) -> list:
             text = current_note["text"]
             text = text.replace("+LLM", "").strip()
             
-            # @メンション を削除
-            text = re.sub(r"@\w+", "", text).strip()
+            # @メンション を削除 (ドメイン付きを含む)
+            text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", text).strip()
             
             if text:  # 空でない場合のみ追加
                 # ボット自身の返信か、ユーザーの質問かを判定
@@ -228,7 +228,7 @@ async def on_note(note):
                 
                 # 現在のメッセージを追加
                 user_input = note["text"].replace("+LLM", "").strip()
-                user_input = re.sub(r"@\w+", "", user_input).strip()
+                user_input = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input).strip()
                 
                 conversation_messages.append({
                     "role": "user",
@@ -245,10 +245,7 @@ async def on_note(note):
                     messages=[{"role": "system", "content": system_message}] + conversation_messages,
                 )
                 
-                safe_text = (
-                    response.choices[0].message.content.replace("@Yon_Radxa_Cubie_A5E", "")
-                    .strip()
-                )
+                safe_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.choices[0].message.content).strip()
                 
                 mk.notes_create(
                     text=safe_text,
