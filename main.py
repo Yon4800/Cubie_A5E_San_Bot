@@ -231,7 +231,7 @@ async def on_note(note):
     if note.get("mentions"):
         if MY_ID in note["mentions"] and "+LLM" in note["text"]:
             mk.notes_reactions_create(
-                note_id=note["id"], reaction=":fast_rotating_think:"
+                note_id=note["id"], reaction="🤔"
             )
 
             try:
