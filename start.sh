@@ -1,1 +1,1 @@
-screen -AmdS cubie_san python main.py
+python main.py
