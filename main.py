@@ -19,7 +19,7 @@ mk = Misskey(Server)
 mk.token = Token
 
 client = OpenAI(
-    base_url="https://ai-engine.sakura.ad.jp/v1",
+    base_url="https://api.ai.sakura.ad.jp/v1",
     api_key=os.environ["APIKEY"],
 )
 
