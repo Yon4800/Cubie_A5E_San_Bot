@@ -4,28 +4,25 @@ import websockets
 from misskey import Misskey, NoteVisibility
 from dotenv import load_dotenv
 import os
-from openai import OpenAI
+from google import genai
+from google.genai import types
 import schedule
 from datetime import datetime
-
 import random
 import re
 
 load_dotenv()
 Token = os.getenv("TOKEN")
 Server = os.getenv("SERVER")
-Apikey = os.getenv("APIKEY")
+Apikey = os.getenv("APIKEY")  # Gemini API Key
 mk = Misskey(Server)
 mk.token = Token
 
-client = OpenAI(
-    base_url="https://api.ai.sakura.ad.jp/v1",
-    api_key=os.environ["APIKEY"],
-)
+# Google Genai クライアント初期化
+client = genai.Client(api_key=Apikey)
 
 MY_ID = mk.i()["id"]
 WS_URL = "wss://" + Server + "/streaming?i=" + Token
-
 oha = "07:00"
 
 ohiru = "12:00"
@@ -202,66 +199,87 @@ def get_conversation_history(note_id: str, max_depth: int = 10) -> list:
     while current_note_id and depth < max_depth:
         try:
             current_note = mk.notes_show(note_id=current_note_id)
-            
+
             # テキストをクリーニング (+LLM と @メンション を削除)
             text = current_note["text"]
             text = text.replace("+LLM", "").strip()
-            
+
             # @メンション を削除 (ドメイン付きを含む)
             text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", text).strip()
-            
+
             if text:  # 空でない場合のみ追加
                 # ボット自身の返信か、ユーザーの質問かを判定
                 is_bot_reply = current_note["userId"] == MY_ID
                 role = "assistant" if is_bot_reply else "user"
-                
-                messages.insert(0, {
-                    "role": role,
-                    "content": text
-                })
-            
+
+                messages.insert(0, {"role": role, "content": text})
+
             # 親ノートへ
             current_note_id = current_note.get("replyId")
             depth += 1
         except Exception as e:
             print(f"会話履歴取得エラー: {e}")
             break
-    
+
     return messages
 
 
 async def on_note(note):
     if note.get("mentions"):
         if MY_ID in note["mentions"] and "+LLM" in note["text"]:
-            mk.notes_reactions_create(
-                note_id=note["id"], reaction="🤔"
-            )
+            mk.notes_reactions_create(note_id=note["id"], reaction="🤔")
 
             try:
                 # 会話履歴を取得
                 conversation_messages = get_conversation_history(note["id"])
-                
+
                 # 現在のメッセージを追加
                 user_input = note["text"].replace("+LLM", "").strip()
-                user_input = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input).strip()
-                
-                conversation_messages.append({
-                    "role": "user",
-                    "content": user_input
-                })
-                
+                user_input = re.sub(
+                    r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input
+                ).strip()
+
+                conversation_messages.append({"role": "user", "content": user_input})
+
                 current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
-                
+
                 # システムプロンプトを最初に追加
-                system_message = seikaku + "\n現在時刻は" + current_time + "です。\n" + note["user"]["name"] + " という方にメンションされました。"
-                
-                response = client.chat.completions.create(
-                    model="preview/Qwen3-VL-30B-A3B-Instruct",
-                    messages=[{"role": "system", "content": system_message}] + conversation_messages,
+                system_message = (
+                    seikaku
+                    + "\n現在時刻は"
+                    + current_time
+                    + "です。\n"
+                    + note["user"]["name"]
+                    + " という方にメンションされました。"
                 )
-                
-                safe_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.choices[0].message.content).strip()
-                
+
+                history = []
+                for msg in conversation_messages[:-1]:  # 最後のユーザーメッセージ以外
+                    role = "model" if msg["role"] == "assistant" else "user"
+                    history.append(
+                        types.Content(
+                            role=role, parts=[types.Part(text=msg["content"])]
+                        )
+                    )
+
+                # 最後のユーザーメッセージ
+                last_user_message = conversation_messages[-1]["content"]
+
+                response = client.models.generate_content(
+                    model="gemma-4-31b-it",
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_message
+                    ),
+                    contents=history
+                    + [
+                        types.Content(
+                            role="user", parts=[types.Part(text=last_user_message)]
+                        )
+                    ],
+                )
+                safe_text = re.sub(
+                    r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text
+                ).strip()
                 mk.notes_create(
                     text=safe_text,
                     reply_id=note["id"],
