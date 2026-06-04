@@ -91,6 +91,7 @@ seikaku = """
     メンション(@)はしない
     """
 
+
 def jobX(current_time):
     system_message = seikaku + "\n現在時刻は" + current_time + "です。\n定期挨拶です。"
     response = client.models.generate_content(
@@ -238,12 +239,10 @@ async def on_note(note):
                         temperature=0.0,
                         system_instruction=system_message,
                     ),
-                    contents=history
-                    + [
-                        types.Content(
-                            role="user", parts=[types.Part(text=last_user_message)]
-                        )
-                    ],
+                    contents=types.Content(
+                        role="user", parts=[types.Part(text=last_user_message)]
+                    ),
+                    history=history,
                 )
                 safe_text = re.sub(
                     r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text
