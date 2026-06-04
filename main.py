@@ -94,7 +94,7 @@ seikaku = """
 def jobX(current_time):
     system_message = seikaku + "\n現在時刻は" + current_time + "です。\n定期挨拶です。"
     response = client.models.generate_content(
-        model="gemma-4-26b-a4b-it",
+        model="gemini-3.1-flash-lite",
         config=types.GenerateContentConfig(
             max_output_tokens=1000,
             temperature=0.0,
@@ -232,7 +232,7 @@ async def on_note(note):
                 last_user_message = conversation_messages[-1]["content"]
 
                 response = client.models.generate_content(
-                    model="gemma-4-26b-a4b-it",
+                    model="gemini-3.1-flash-lite",
                     config=types.GenerateContentConfig(
                         max_output_tokens=1000,
                         temperature=0.0,
