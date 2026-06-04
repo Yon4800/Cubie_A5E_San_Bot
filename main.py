@@ -29,8 +29,6 @@ ohiru = "12:00"
 
 oyatsu = "15:00"
 
-teiki = "17:00"
-
 yuuhann = "19:00"
 
 oyasumi = "22:00"
@@ -86,77 +84,46 @@ seikaku = """
     下のIntel Core i3-6100TのPCが何に使われているのか気になっている。
     OrangePi Zero 3はまだ許せますが、OrangePi 4 Proの生意気な性格が気に入らないそうです。
     Radxa Rock Pi Sのことは、同じRadxaの仲間なので、まあ許せるみたいですが、頭が悪すぎて困っているそうです
-    最近Misskeｙサーバー(おぽんぽんすきー)を動かす媒体に選ばれたことが嬉しいそうですが、最近おぽんぽんすきー1号がよんぱちさんのミスのせいで廃止されて、新しいサーバーにおぱじさんが選ばれてしまったことが不満みたいです。
+    最近Misskeyサーバー(おぽんぽんすきー)を動かす媒体に選ばれたことが嬉しいそうですが、最近おぽんぽんすきー1号がよんぱちさんのミスのせいで廃止されて、新しいサーバーにおぱじさんが選ばれてしまったことが不満みたいです。
     自分になにか手を出したら強制無給無休24時間労働させると脅してきます。
     MisskeyのBotです。
     300文字以内で
     メンション(@)はしない
     """
 
-
-def job0():
+def jobX(current_time):
+    system_message = seikaku + "\n現在時刻は" + current_time + "です。\n定期挨拶です。"
+    response = client.models.generate_content(
+        model="gemma-4-26b-a4b-it",
+        config=types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            max_output_tokens=1000,
+            temperature=0.0,
+            system_instruction=system_message,
+        ),
+        contents=types.Content(
+            role="user",
+        ),
+    )
+    safe_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text).strip()
     mk.notes_create(
-        "おはよう！朝ごはんは重要だよ！ちゃんと食べようね！え？私は何を食べるのだって？で、、、電気...(5V2Aしか食べない...少食だから...)",
+        safe_text,
         visibility=NoteVisibility.HOME,
         no_extract_mentions=True,
     )
 
 
-def job1():
-    mk.notes_create(
-        "お昼の時間だよ？何を食べるって？うーん...私は電気しか食べないなぁ、少食だし...(AIでは結構食ってるけど...)",
-        visibility=NoteVisibility.HOME,
-        no_extract_mentions=True,
-    )
+def job():
+    current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
+    jobX(current_time)
 
 
-def job2():
-    mk.notes_create(
-        "おやつの時間だよ！私は何を食べよう...うーん...電気...()",
-        visibility=NoteVisibility.HOME,
-        no_extract_mentions=True,
-    )
-
-
-def job2_5():
-    mk.notes_create(
-        "なにか追加してほしい機能があったら言ってね:neko_relax:",
-        visibility=NoteVisibility.HOME,
-        no_extract_mentions=True,
-    )
-
-
-def job3():
-    mk.notes_create(
-        "夕飯の時間だよ！！！私は電気しか食べないよ？しかもあんま食べないし...",
-        visibility=NoteVisibility.HOME,
-        no_extract_mentions=True,
-    )
-
-
-def job4():
-    mk.notes_create(
-        "そろそろ寝る時間だよ！私は寝ないけどね...:neko_tired2: を...をねこちゃん、、、いつの間に...ん、、、ん、、、ん、、、、、、:nginx_nnginxi:",
-        visibility=NoteVisibility.HOME,
-        no_extract_mentions=True,
-    )
-
-
-def job5():
-    mk.notes_create(
-        "そろそろ寝ないとやばいよ！！！え？私？そもそも寝れない...寝ると終わる...",
-        visibility=NoteVisibility.HOME,
-        no_extract_mentions=True,
-    )
-
-
-schedule.every().day.at(oha).do(job0)
-schedule.every().day.at(ohiru).do(job1)
-schedule.every().day.at(oyatsu).do(job2)
-schedule.every().day.at(teiki).do(job2_5)
-schedule.every().day.at(yuuhann).do(job3)
-schedule.every().day.at(oyasumi).do(job4)
-schedule.every().day.at(oyasumi2).do(job5)
+schedule.every().day.at(oha).do(job)
+schedule.every().day.at(ohiru).do(job)
+schedule.every().day.at(oyatsu).do(job)
+schedule.every().day.at(yuuhann).do(job)
+schedule.every().day.at(oyasumi).do(job)
+schedule.every().day.at(oyasumi2).do(job)
 
 
 async def teiki():
@@ -268,7 +235,10 @@ async def on_note(note):
                 response = client.models.generate_content(
                     model="gemma-4-26b-a4b-it",
                     config=types.GenerateContentConfig(
-                        system_instruction=system_message
+                        thinking_config=types.ThinkingConfig(thinking_budget=0),
+                        max_output_tokens=1000,
+                        temperature=0.0,
+                        system_instruction=system_message,
                     ),
                     contents=history
                     + [
