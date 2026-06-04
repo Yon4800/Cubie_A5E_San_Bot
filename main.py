@@ -92,14 +92,14 @@ seikaku = """
     """
 
 def jobX(current_time):
-    system_message = seikaku + "\n現在時刻は" + current_time + "です。\n定期挨拶です。"
+    system_message = seikaku + "\n現在時刻は" + current_time + "です。"
     response = client.models.generate_content(
         model="gemini-3.1-flash-lite",
         config=types.GenerateContentConfig(
             system_instruction=system_message,
         ),
         contents=types.Content(
-            role="user",
+            role="user", parts=[types.Part(text="定期投稿の時間だよ！")],
         ),
     )
     safe_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text).strip()
