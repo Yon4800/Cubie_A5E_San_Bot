@@ -11,6 +11,11 @@ from datetime import datetime
 import random
 import re
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 load_dotenv()
 Token = os.getenv("TOKEN")
 Server = os.getenv("SERVER")
@@ -86,10 +91,60 @@ seikaku = """
     Radxa Rock Pi Sのことは、同じRadxaの仲間なので、まあ許せるみたいですが、頭が悪すぎて困っているそうです
     最近Misskeyサーバー(おぽんぽんすきー)を動かす媒体に選ばれたことが嬉しいそうですが、最近おぽんぽんすきー1号がよんぱちさんのミスのせいで廃止されて、新しいサーバーにおぱじさんが選ばれてしまったことが不満みたいですが、また新しいサーバーに移行したときに選ばれたそうです。ただ、ドメインがopi4pro.oponpon.dpdns.orgになってることで、なんでOrangePi 4 Proのドメインになってるのか不満みたいです。
     自分になにか手を出したら強制無給無休24時間労働させると脅してきます。
+    ロックスには、気温を測れる機能があり、きゅびーさんには、CPUとRAMの使用率を測れる機能があります。
+    おぱじふぉぷろさんには、回線速度を測れる機能があります。
     MisskeyのBotです。
     300文字以内で
     メンション(@)はしない
     """
+
+
+def get_cpu_usage() -> float:
+    if psutil is not None:
+        return psutil.cpu_percent(interval=0.5)
+
+    def read_cpu_times():
+        with open("/proc/stat", "r", encoding="utf-8") as f:
+            line = f.readline().strip()
+        values = [int(x) for x in line.split()[1:]]
+        total = sum(values)
+        idle = values[3] + values[4] if len(values) > 4 else values[3]
+        return total, idle
+
+    total1, idle1 = read_cpu_times()
+    import time
+    time.sleep(0.5)
+    total2, idle2 = read_cpu_times()
+    total_delta = total2 - total1
+    idle_delta = idle2 - idle1
+    return 0.0 if total_delta == 0 else round((1.0 - idle_delta / total_delta) * 100.0, 1)
+
+
+def get_memory_usage() -> tuple[float, int, int]:
+    if psutil is not None:
+        mem = psutil.virtual_memory()
+        return mem.percent, round(mem.used / 1024**2), round(mem.total / 1024**2)
+
+    meminfo = {}
+    with open("/proc/meminfo", "r", encoding="utf-8") as f:
+        for line in f:
+            key, value = line.split(':', 1)
+            meminfo[key.strip()] = int(value.split()[0])
+
+    total_kb = meminfo.get("MemTotal", 0)
+    avail_kb = meminfo.get("MemAvailable", meminfo.get("MemFree", 0))
+    used_kb = total_kb - avail_kb
+    total_mb = round(total_kb / 1024)
+    used_mb = round(used_kb / 1024)
+    percent = round(100.0 * used_kb / total_kb, 1) if total_kb else 0.0
+    return percent, used_mb, total_mb
+
+
+def get_system_monitoring_text() -> str:
+    cpu = get_cpu_usage()
+    ram_percent, used_mb, total_mb = get_memory_usage()
+    return f"CPU使用率: {cpu}%\nRAM使用率: {ram_percent}%\nRAM使用量: {used_mb}MB / {total_mb}MB"
+
 
 def jobX(current_time):
     system_message = seikaku + "\n現在時刻は" + current_time + "です。"
@@ -190,6 +245,52 @@ def get_conversation_history(note_id: str, max_depth: int = 10) -> list:
 
 async def on_note(note):
     if note.get("mentions"):
+        if MY_ID in note["mentions"] and "+M" in note["text"]:
+            mk.notes_reactions_create(note_id=note["id"], reaction="📊")
+            try:
+                current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
+                monitor_text = get_system_monitoring_text()
+                system_message = (
+                    seikaku
+                    + "\n現在時刻は"
+                    + current_time
+                    + "です。\n"
+                    + note["user"]["name"]
+                    + " という方にメンションされました。"
+                )
+
+                prompt = (
+                    "現在の機器のリソース状況を以下の通り報告します。"
+                    + "\n"
+                    + monitor_text
+                    + "\nこの数値を元に、あなたのキャラクターの口調で、300文字以内で回答してください。"
+                )
+
+                response = client.models.generate_content(
+                    model="gemini-3.1-flash-lite",
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_message,
+                    ),
+                    contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+                )
+                safe_text = re.sub(
+                    r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text
+                ).strip()
+                mk.notes_create(
+                    text=safe_text,
+                    reply_id=note["id"],
+                    visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
+                )
+            except Exception as e:
+                mk.notes_create(
+                    "システム情報の取得中に問題が発生しました…ごめんね。",
+                    visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True,
+                )
+                print(e)
+            return
+
         if MY_ID in note["mentions"] and "+LLM" in note["text"]:
             mk.notes_reactions_create(note_id=note["id"], reaction="🤔")
 
@@ -222,8 +323,7 @@ async def on_note(note):
                     role = "model" if msg["role"] == "assistant" else "user"
                     history.append(
                         types.Content(
-                            role=role, parts=[types.Part(text=msg["content"])]
-                        )
+                            role=role, parts=[types.Part(text=msg["content"])])
                     )
 
                 # 最後のユーザーメッセージ
@@ -237,8 +337,7 @@ async def on_note(note):
                     contents=history
                     + [
                         types.Content(
-                            role="user", parts=[types.Part(text=last_user_message)]
-                        )
+                            role="user", parts=[types.Part(text=last_user_message)])
                     ],
                 )
                 safe_text = re.sub(
