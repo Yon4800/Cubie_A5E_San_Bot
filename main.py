@@ -25,8 +25,8 @@ Apikey = os.getenv("APIKEY")  # Gemini API Key
 mk = Misskey(Server)
 mk.token = Token
 
-# Economy State File Path (default to parent directory to share with other bots, or a URL)
-ECONOMY_STATE_PATH = os.getenv("ECONOMY_STATE_PATH", "../shared_economy.json")
+# Economy State File Path (default to current directory, or a URL)
+ECONOMY_STATE_PATH = os.getenv("ECONOMY_STATE_PATH", "shared_economy.json")
 ECONOMY_HTTP_HEADER_KEY = os.getenv("ECONOMY_HTTP_HEADER_KEY")
 ECONOMY_HTTP_HEADER_VALUE = os.getenv("ECONOMY_HTTP_HEADER_VALUE")
 
