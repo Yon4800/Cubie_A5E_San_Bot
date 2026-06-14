@@ -458,10 +458,21 @@ async def on_note(note):
         f"・1 $SBC = {rate_ogc:.2f} OGC (隣のOrangePiの通貨: {ogc_status})\n"
     )
 
+    user_cbc = user_state["balance_cbc"]
+    user_ogc = user_state["balance_ogc"]
+    user_sbc = user_state["balance_sbc"]
+    
+    coin_info = rate_info + (
+        f"・話しかけているユーザー（{user_name}）の資産残高:\n"
+        f"  CBC残高: {user_cbc:.2f} CBC\n"
+        f"  OGC残高: {user_ogc:.2f} OGC\n"
+        f"  $SBC残高: {user_sbc:.2f} $SBC\n"
+    )
+
     current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
     system_instruction = (
         seikaku
-        + rate_info
+        + coin_info
         + "\n現在時刻は"
         + current_time
         + "です。\n"
