@@ -1,6 +1,13 @@
 #!/bin/bash
 echo "Starting local Mockoon CLI on port 4444..."
 
+# Generate mockoon-environment.json from template if it does not exist
+if [ ! -f mockoon-environment.json ]; then
+  echo "mockoon-environment.json not found. Generating from example template..."
+  cp mockoon-environment.json.example mockoon-environment.json
+fi
+
+
 # Check if port 4444 is already in use
 PID=$(netstat -ano 2>/dev/null | grep :4444 | grep LISTENING | awk '{print $5}')
 PID=$(echo "$PID" | tr -d '\r')
