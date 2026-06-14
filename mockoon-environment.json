@@ -1,0 +1,236 @@
+{
+  "uuid": "mockoon-env-misskey-bots",
+  "lastMigration": 32,
+  "name": "Misskey Bots Mock API",
+  "endpointPrefix": "",
+  "latency": 0,
+  "port": 3000,
+  "hostname": "0.0.0.0",
+  "routes": [
+    {
+      "uuid": "route-get-economy",
+      "type": "http",
+      "method": "get",
+      "endpoint": "economy",
+      "responses": [
+        {
+          "uuid": "resp-get-economy",
+          "body": "{{#if (getGlobalVar 'economy')}}{{{stringify (getGlobalVar 'economy')}}}{{else}}{\n  \"salary_cooldown_seconds\": 86400,\n  \"rate_update_interval_seconds\": 60,\n  \"rates\": {\n    \"CBC\": {\"current\": 100.0, \"previous\": 100.0},\n    \"OGC\": {\"current\": 100.0, \"previous\": 100.0}\n  },\n  \"last_rate_update\": \"2026-06-14T13:51:14\",\n  \"bots\": {},\n  \"users\": {}\n}{{/if}}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "",
+          "sendFileAsBody": false,
+          "rules": [],
+          "rulesOperator": "OR"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "uuid": "route-put-economy",
+      "type": "http",
+      "method": "put",
+      "endpoint": "economy",
+      "responses": [
+        {
+          "uuid": "resp-put-economy",
+          "body": "{{setGlobalVar 'economy' (bodyRaw)}}{{{stringify (getGlobalVar 'economy')}}}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "",
+          "sendFileAsBody": false,
+          "rules": [],
+          "rulesOperator": "OR"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "uuid": "route-get-gauge-state",
+      "type": "http",
+      "method": "get",
+      "endpoint": "gauge_state",
+      "responses": [
+        {
+          "uuid": "resp-get-gauge-state",
+          "body": "{{#if (getGlobalVar 'gauge_state')}}{{{stringify (getGlobalVar 'gauge_state')}}}{{else}}{\n  \"crazy_gauge\": 65,\n  \"last_reply_time\": \"2026-06-11T20:51:23.045588\"\n}{{/if}}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "",
+          "sendFileAsBody": false,
+          "rules": [],
+          "rulesOperator": "OR"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "uuid": "route-put-gauge-state",
+      "type": "http",
+      "method": "put",
+      "endpoint": "gauge_state",
+      "responses": [
+        {
+          "uuid": "resp-put-gauge-state",
+          "body": "{{setGlobalVar 'gauge_state' (bodyRaw)}}{{{stringify (getGlobalVar 'gauge_state')}}}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "",
+          "sendFileAsBody": false,
+          "rules": [],
+          "rulesOperator": "OR"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "uuid": "route-get-login-bonus",
+      "type": "http",
+      "method": "get",
+      "endpoint": "login_bonus",
+      "responses": [
+        {
+          "uuid": "resp-get-login-bonus",
+          "body": "{{#if (getGlobalVar 'login_bonus')}}{{{stringify (getGlobalVar 'login_bonus')}}}{{else}}{\n  \"users\": {}\n}{{/if}}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "",
+          "sendFileAsBody": false,
+          "rules": [],
+          "rulesOperator": "OR"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "uuid": "route-put-login-bonus",
+      "type": "http",
+      "method": "put",
+      "endpoint": "login_bonus",
+      "responses": [
+        {
+          "uuid": "resp-put-login-bonus",
+          "body": "{{setGlobalVar 'login_bonus' (bodyRaw)}}{{{stringify (getGlobalVar 'login_bonus')}}}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "",
+          "sendFileAsBody": false,
+          "rules": [],
+          "rulesOperator": "OR"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "uuid": "route-get-opizero3-state",
+      "type": "http",
+      "method": "get",
+      "endpoint": "opizero3_state",
+      "responses": [
+        {
+          "uuid": "resp-get-opizero3-state",
+          "body": "{{#if (getGlobalVar 'opizero3_state')}}{{{stringify (getGlobalVar 'opizero3_state')}}}{{else}}{\n  \"sleep_state\": {\n    \"is_sleeping\": false,\n    \"sleep_start_time\": null,\n    \"target_sleep_duration\": null,\n    \"last_sleep_check_date\": null\n  },\n  \"user_data\": {}\n}{{/if}}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "",
+          "sendFileAsBody": false,
+          "rules": [],
+          "rulesOperator": "OR"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "uuid": "route-put-opizero3-state",
+      "type": "http",
+      "method": "put",
+      "endpoint": "opizero3_state",
+      "responses": [
+        {
+          "uuid": "resp-put-opizero3-state",
+          "body": "{{setGlobalVar 'opizero3_state' (bodyRaw)}}{{{stringify (getGlobalVar 'opizero3_state')}}}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "",
+          "sendFileAsBody": false,
+          "rules": [],
+          "rulesOperator": "OR"
+        }
+      ],
+      "enabled": true
+    }
+  ],
+  "proxyMode": false,
+  "proxyHost": "",
+  "cors": true,
+  "headers": [
+    {
+      "key": "Access-Control-Allow-Origin",
+      "value": "*"
+    },
+    {
+      "key": "Access-Control-Allow-Methods",
+      "value": "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    },
+    {
+      "key": "Access-Control-Allow-Headers",
+      "value": "Content-Type, Authorization"
+    }
+  ]
+}
