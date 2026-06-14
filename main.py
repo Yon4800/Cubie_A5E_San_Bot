@@ -55,15 +55,15 @@ def update_exchange_rates(data, now):
         
         current = data["rates"][coin]["current"]
         
-        # Determine fluctuation
-        if random.random() < 0.10:  # 10% chance of sudden market shock
-            change_percent = random.uniform(-0.40, 0.40)
+        # Determine fluctuation (more frequent and drastic)
+        if random.random() < 0.20:  # 20% chance of sudden market shock
+            change_percent = random.uniform(-0.60, 0.60)
         else:
-            change_percent = random.uniform(-0.15, 0.15)
+            change_percent = random.uniform(-0.25, 0.25)
             
         new_rate = current * (1 + change_percent)
-        # Clamp to [60, 200]
-        new_rate = max(60.0, min(200.0, round(new_rate, 2)))
+        # Clamp to [10.0, 500.0] for wider movement
+        new_rate = max(10.0, min(500.0, round(new_rate, 2)))
         
         data["rates"][coin]["previous"] = current
         data["rates"][coin]["current"] = new_rate
@@ -75,10 +75,11 @@ def check_and_update_rates_on_load(data):
     try:
         last_update = datetime.fromisoformat(data["last_rate_update"])
     except Exception:
-        last_update = now - timedelta(hours=2) # Force update if invalid
+        last_update = now - timedelta(days=1) # Force update if invalid
         
-    # If 1 hour or more has passed
-    if (now - last_update).total_seconds() >= 3600:
+    interval = data.get("rate_update_interval_seconds", 600) # Default to 10 minutes (600 seconds)
+    # If interval or more has passed
+    if (now - last_update).total_seconds() >= interval:
         update_exchange_rates(data, now)
         return True
     return False
@@ -89,6 +90,8 @@ def load_economy():
     
     # Default state structure
     default_state = {
+        "salary_cooldown_seconds": 86400,     # Default to 24 hours
+        "rate_update_interval_seconds": 60,   # Default to 10 minutes
         "rates": {
             "CBC": {"current": 100.0, "previous": 100.0},
             "OGC": {"current": 100.0, "previous": 100.0}
@@ -129,6 +132,11 @@ def load_economy():
                 is_new = True
             
     # Ensure structure exists
+    if "salary_cooldown_seconds" not in data:
+        data["salary_cooldown_seconds"] = default_state["salary_cooldown_seconds"]
+    if "rate_update_interval_seconds" not in data:
+        data["rate_update_interval_seconds"] = default_state["rate_update_interval_seconds"]
+        
     if "rates" not in data:
         data["rates"] = default_state["rates"]
     for coin in ["CBC", "OGC"]:
@@ -427,7 +435,7 @@ schedule.every().day.at(oyatsu).do(job)
 schedule.every().day.at(yuuhann).do(job)
 schedule.every().day.at(oyasumi).do(job)
 schedule.every().day.at(oyasumi2).do(job)
-schedule.every().hour.do(background_update_rates)
+schedule.every(10).minutes.do(background_update_rates)
 
 
 async def teiki():
@@ -529,12 +537,29 @@ async def on_note(note):
             last_paid = now - timedelta(days=1)
             
         elapsed_seconds = (now - last_paid).total_seconds()
+        cooldown_seconds = econ_data.get("salary_cooldown_seconds", 86400)
         
-        # Enforce 24-hour cooldown
-        if elapsed_seconds < 24 * 3600:
-            remaining_seconds = 24 * 3600 - elapsed_seconds
+        # Enforce cooldown
+        if elapsed_seconds < cooldown_seconds:
+            remaining_seconds = cooldown_seconds - elapsed_seconds
             hours = int(remaining_seconds // 3600)
             minutes = int((remaining_seconds % 3600) // 60)
+            seconds = int(remaining_seconds % 60)
+            
+            # Format cooldown description for instruction
+            cooldown_hours = cooldown_seconds / 3600.0
+            if cooldown_hours.is_integer():
+                cooldown_desc = f"{int(cooldown_hours)}時間"
+            else:
+                cooldown_desc = f"{cooldown_hours:.1f}時間"
+                
+            if hours > 0:
+                remaining_desc = f"{hours}時間{minutes}分"
+            elif minutes > 0:
+                remaining_desc = f"{minutes}分{seconds}秒"
+            else:
+                remaining_desc = f"{seconds}秒"
+                
             try:
                 mk.notes_reactions_create(note_id=note["id"], reaction="⏳")
             except Exception:
@@ -542,13 +567,13 @@ async def on_note(note):
                 
             instr = (
                 system_instruction
-                + f"\n\n【状況】ユーザーがあなたに給料を支払おうとしましたが、まだ前回の給料日から24時間経過していないため、給料日は来ていません。"
-                + f"\n次の給料日（24時間経過する）まであと {hours}時間{minutes}分 残っています。"
-                + f"\n【指示】「給料日は1日1回だけであること」と「まだ時間が足りないこと（あと何時間何分必要か）」を自分の口調（少し不機嫌、あるいはあなたのキャラクターらしく）で伝え、給料の受け取りを断ってください。300文字以内で、メンションは含めないでください。"
+                + f"\n\n【状況】ユーザーがあなたに給料を支払おうとしましたが、まだ前回の給料日から指定のクールダウン時間（{cooldown_desc}）が経過していないため、給料日は来ていません。"
+                + f"\n次の給料日（{cooldown_desc}経過する）まであと {remaining_desc} 残っています。"
+                + f"\n【指示】「給料日は{cooldown_desc}に1回だけであること」と「まだ時間が足りないこと（あとどれくらい必要か）」を自分の口調（少し不機嫌、あるいはあなたのキャラクターらしく）で伝え、給料の受け取りを断ってください。300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "+C (給料日チェック)")
             if not reply:
-                reply = f"給料日は1日1回だよ！前回の給料日からまだ24時間経ってないよ。（次の給料日まであと {hours}時間{minutes}分）"
+                reply = f"給料日は{cooldown_desc}に1回だよ！前回の給料日からまだ時間が経ってないよ。（次の給料日まであと {remaining_desc}）"
                 
             mk.notes_create(
                 text=reply,
@@ -585,17 +610,17 @@ async def on_note(note):
         instr = (
             system_instruction
             + f"\n\n【状況】ユーザーがあなたに給料（CBC）を支払ってくれました。"
-            + f"\n働いた時間: 前回から {time_desc} 分"
+            + f"\n働いた時間: 前回から {time_desc}"
             + f"\n給料額: {sbc_amount:.1f} $SBC 分（為替レート 1 $SBC = {rate:.2f} CBC で換算して {payout_cbc:.2f} CBC）"
             + f"\n受け取り後の貯金残高: {bot_state['balance_cbc']:.2f} CBC"
             + f"\n【指示】給料をもらえたことへの感謝（あるいはキャラクターらしい少しツンツンした喜び）を伝え、"
-            + f"「{time_desc}分働いて、{sbc_amount:.1f} $SBC（現在のレート 1$SBC = {rate:.2f} CBC で換算して {payout_cbc:.2f} CBC）を受け取ったこと」と"
+            + f"「{time_desc}働いて、{sbc_amount:.1f} $SBC（現在のレート 1$SBC = {rate:.2f} CBC で換算して {payout_cbc:.2f} CBC）を受け取ったこと」と"
             + f"「新しい貯金残高が {bot_state['balance_cbc']:.2f} CBC になったこと」をキャラクターのセリフとして自然に報告してください。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+C (給料支払い成功)")
         if not reply:
             reply = (
-                f"給料を払ってくれてありがとう！前回から {time_desc} 分働いたよ。\n"
+                f"給料を払ってくれてありがとう！前回から {time_desc} 働いたよ。\n"
                 f"給料として {sbc_amount:.1f} $SBC 分（レート 1 $SBC = {rate:.2f} CBC で {payout_cbc:.2f} CBC）を受け取ったよ！\n"
                 f"現在の貯金: {bot_state['balance_cbc']:.2f} CBC"
             )
