@@ -7,10 +7,12 @@ import random
 
 ECONOMY_STATE_PATH = os.getenv("ECONOMY_STATE_PATH")
 
-def get_http_headers():
+def get_http_headers(has_body=False):
     header_key = os.getenv("ECONOMY_HTTP_HEADER_KEY")
     header_val = os.getenv("ECONOMY_HTTP_HEADER_VALUE")
-    headers = {"Content-Type": "application/json"}
+    headers = {}
+    if has_body:
+        headers["Content-Type"] = "application/json"
     if header_key and header_val:
         headers[header_key] = header_val
     return headers
@@ -100,7 +102,7 @@ def load_economy():
     
     if filepath.startswith(("http://", "https://")):
         try:
-            res = requests.get(filepath, headers=get_http_headers(), timeout=5)
+            res = requests.get(filepath, headers=get_http_headers(has_body=False), timeout=5)
             if res.status_code == 200:
                 loaded = res.json()
                 if isinstance(loaded, dict):
@@ -155,7 +157,7 @@ def save_economy(data):
     filepath = get_economy_filepath()
     if filepath.startswith(("http://", "https://")):
         try:
-            res = requests.put(filepath, json=data, headers=get_http_headers(), timeout=5)
+            res = requests.put(filepath, json=data, headers=get_http_headers(has_body=True), timeout=5)
             if res.status_code not in (200, 201, 204):
                 print(f"Failed to save remote economy state: {res.status_code}")
         except Exception as e:
