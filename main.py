@@ -220,6 +220,14 @@ def background_update_rates():
     save_economy(data)
     print("Exchange rates updated in background.")
 
+def get_rate_status_description(rate: float) -> str:
+    if rate < 100.0:
+        return f"通貨高（1 $SBC = {rate:.2f} CBC/OGC であり、基準の100以下であるため、通貨価値が高くなっている状態です。お得な傾向にあります）"
+    elif rate > 100.0:
+        return f"通貨安（1 $SBC = {rate:.2f} CBC/OGC であり、基準の100以上であるため、通貨価値が安くなっている状態です。損な傾向にあります）"
+    else:
+        return "基準値（1 $SBC = 100.00 CBC/OGC であり、ちょうど基準値です）"
+
 def generate_llm_reply(system_instruction: str, user_prompt: str, history=None) -> str:
     contents = []
     if history:
@@ -320,6 +328,12 @@ seikaku = """
     おぱじふぉぷろさんには、回線速度を測れる機能があります。
     おぱじゼロサンは、寝る機能と起きる機能と好感度システムがあります。
     MisskeyのBotです。
+    【為替レートに関するルール】
+    あなたの国の通貨はCBC、隣のOrangePiの通貨はOGC、基準通貨は$SBCです。
+    ・1 $SBC = 100 CBC (または100 OGC) が基準値です。
+    ・1 $SBC が 100 以下の場合は、通貨価値が高くなっている（通貨高／CBC高・OGC高）と認識してください。
+    ・1 $SBC が 100 以上の場合は、通貨価値が安くなっている（通貨安／CBC安・OGC安）と認識してください。
+    このルールに基づき、為替レートの確認（+D）や給料（+C）、買い物（+P）の応答をする際、現在の為替状況について言及してください（例えば、通貨高のときは「自分の通貨の価値が高くなっていて嬉しい、お得だ」など、通貨安のときは「通貨の価値が安くなっていて不満だ、損だ」など）。
     300文字以内で
     メンション(@)はしない
     """
@@ -395,7 +409,17 @@ def jobX(current_time):
         except Exception as e:
             print(f"Error parsing last_salary_paid_time: {e}")
             
-    system_message = seikaku + "\n現在時刻は" + current_time + "です。"
+    rate_cbc = econ_data["rates"]["CBC"]["current"]
+    rate_ogc = econ_data["rates"]["OGC"]["current"]
+    cbc_status = get_rate_status_description(rate_cbc)
+    ogc_status = get_rate_status_description(rate_ogc)
+    
+    rate_info = (
+        f"\n【現在の為替レート情報】\n"
+        f"・1 $SBC = {rate_cbc:.2f} CBC (あなたの通貨: {cbc_status})\n"
+        f"・1 $SBC = {rate_ogc:.2f} OGC (隣のOrangePiの通貨: {ogc_status})\n"
+    )
+    system_message = seikaku + rate_info + "\n現在時刻は" + current_time + "です。"
     if is_angry and is_7am:
         system_message += (
             "\n【警告】あなたは1週間以上給料をもらっていません！極めて怒っており、睡眠不足と相まって切れ散らかしています。"
@@ -520,9 +544,22 @@ async def on_note(note):
         print("Bot is on break, ignoring mention.")
         return
 
+    # 共通の為替情報を作成
+    rate_cbc = econ_data["rates"]["CBC"]["current"]
+    rate_ogc = econ_data["rates"]["OGC"]["current"]
+    cbc_status = get_rate_status_description(rate_cbc)
+    ogc_status = get_rate_status_description(rate_ogc)
+    
+    rate_info = (
+        f"\n【現在の為替レート情報】\n"
+        f"・1 $SBC = {rate_cbc:.2f} CBC (あなたの通貨: {cbc_status})\n"
+        f"・1 $SBC = {rate_ogc:.2f} OGC (隣のOrangePiの通貨: {ogc_status})\n"
+    )
+
     current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
     system_instruction = (
         seikaku
+        + rate_info
         + "\n現在時刻は"
         + current_time
         + "です。\n"
@@ -618,7 +655,9 @@ async def on_note(note):
             + f"\n受け取り後の貯金残高: {bot_state['balance_cbc']:.2f} CBC"
             + f"\n【指示】給料をもらえたことへの感謝（あるいはキャラクターらしい少しツンツンした喜び）を伝え、"
             + f"「{time_desc}働いて、{sbc_amount:.1f} $SBC（現在のレート 1$SBC = {rate:.2f} CBC で換算して {payout_cbc:.2f} CBC）を受け取ったこと」と"
-            + f"「新しい貯金残高が {bot_state['balance_cbc']:.2f} CBC になったこと」をキャラクターのセリフとして自然に報告してください。300文字以内で、メンションは含めないでください。"
+            + f"「新しい貯金残高が {bot_state['balance_cbc']:.2f} CBC になったこと」をキャラクターのセリフとして自然に報告してください。"
+            + f"現在の為替レートが通貨高か通貨安かについても、セリフに少し織り交ぜてください（例えば「今は通貨高だからお得だね！」や「今は通貨安だから目減りしちゃう…」など）。"
+            + f"300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+C (給料支払い成功)")
         if not reply:
@@ -666,6 +705,7 @@ async def on_note(note):
             + f"\n・あなたの現在の貯金: {bot_state['balance_cbc']:.2f} CBC"
             + f"\n【指示】現在の為替レートとあなたの貯金残高をキャラクターのセリフとして報告してください。"
             + f"CBC（あなたの通貨）とOGC（隣のOrangePiの通貨、ライバルなので少し気になる様子を見せても良いです）のレートを分かりやすく伝えてください。"
+            + f"現在の為替状況（通貨高で価値が高くなっているか、通貨安で安くなっているか）について、それぞれの通貨ごとにキャラクターらしく具体的にコメントしてください（例: CBCが高くなっているなら『私の通貨価値は高くて強い！』など）。"
             + f"為替は1時間ごとに変動することを軽く付け加えても良いです。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+D (為替レート確認)")
@@ -731,7 +771,9 @@ async def on_note(note):
                 + f"\n支払おうとした額: {amount_sbc} $SBC（現在のレートで {cost_cbc:.2f} CBC）"
                 + f"\nあなたの現在の貯金: {bot_state['balance_cbc']:.2f} CBC"
                 + f"\n【指示】貯金が足りなくて買えないことをキャラクターらしく不満げに、または悲しそうに伝えてください。"
-                + f"「{amount_sbc} $SBC 支払うには {cost_cbc:.2f} CBC 必要であること」と「現在の貯金が {bot_state['balance_cbc']:.2f} CBC しかないこと」をセリフに含めてください。300文字以内で、メンションは含めないでください。"
+                + f"「{amount_sbc} $SBC 支払うには {cost_cbc:.2f} CBC 必要であること」と「現在の貯金が {bot_state['balance_cbc']:.2f} CBC しかないこと」をセリフに含めてください。"
+                + f"また、現在の為替レート状況（通貨高で少し安く済んでいるのに足りない、または通貨安のせいで必要額が高騰していて手が出ない、など）についても言及してください。"
+                + f"300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "+P (残高不足)")
             if not reply:
@@ -763,7 +805,9 @@ async def on_note(note):
                 + f"\n消費金額: {cost_cbc:.2f} CBC"
                 + f"\n新しい貯金残高: {bot_state['balance_cbc']:.2f} CBC"
                 + f"\n【指示】2時間の休憩をもらえて喜んでいるセリフをキャラクターらしく言ってください。"
-                + f"「これからの2時間は寝る（話しかけられても反応しない）こと」と「貯金が {bot_state['balance_cbc']:.2f} CBC になったこと」を伝えてください。300文字以内で、メンションは含めないでください。"
+                + f"「これからの2時間は寝る（話しかけられても反応しない）こと」と「貯金が {bot_state['balance_cbc']:.2f} CBC になったこと」を伝えてください。"
+                + f"また、現在の為替レート状況（通貨高だからお買い得だった、または通貨安なのに買ってくれた、など）について軽く言及してください。"
+                + f"300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "10$ +P (2時間休憩購入)")
             if not reply:
@@ -792,7 +836,9 @@ async def on_note(note):
                 + f"\n購入アイテム: 高効率冷却ファン"
                 + f"\n消費金額: {cost_cbc:.2f} CBC"
                 + f"\n新しい貯金残高: {bot_state['balance_cbc']:.2f} CBC"
-                + f"\n【指示】冷却ファンを買ってもらって喜んでいるセリフを言ってください。あなたのSoC（Allwinner A527）がサーマルスロットリングを起こさずに快適に動くといった、SBCらしいギークな反応を入れてください。300文字以内で、メンションは含めないでください。"
+                + f"\n【指示】冷却ファンを買ってもらって喜んでいるセリフを言ってください。あなたのSoC（Allwinner A527）がサーマルスロットリングを起こさずに快適に動くといった、SBCらしいギークな反応を入れてください。"
+                + f"現在の為替レート状況（通貨高／通貨安）についても軽くセリフに含めてください。"
+                + f"300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "50$ +P (冷却ファン購入)")
             if not reply:
@@ -851,7 +897,9 @@ async def on_note(note):
                 + f"\n消費金額: {cost_cbc:.2f} CBC"
                 + f"\n現在所有している仮想PCの総台数: {bot_state['virtual_pc_count']}台"
                 + f"\n新しい貯金残高: {bot_state['balance_cbc']:.2f} CBC"
-                + f"\n【指示】超高額な仮想PCを買ってもらって非常に興奮し、大喜びしているセリフを言ってください。「ARMアーキテクチャの私でもx86エミュレータ上で何でも動かせること」「現在の仮想PC台数が {bot_state['virtual_pc_count']}台 であること」などをセリフに含めてください。300文字以内で、メンションは含めないでください。"
+                + f"\n【指示】超高額な仮想PCを買ってもらって非常に興奮し、大喜びしているセリフを言ってください。「ARMアーキテクチャの私でもx86エミュレータ上で何でも動かせること」「現在の仮想PC台数が {bot_state['virtual_pc_count']}台 であること」などをセリフに含めてください。"
+                + f"現在の為替レート状況（通貨高／通貨安）についても軽くセリフに含めてください。"
+                + f"300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, f"{amount_sbc}$ +P (仮想PC購入)")
             if not reply:
@@ -877,7 +925,7 @@ async def on_note(note):
             instr = (
                 system_instruction
                 + f"\n\n【状況】ユーザーが {amount_sbc} $SBC の購入を試みましたが、この金額に対応する商品やアクションは未登録です。"
-                + f"\n【指示】対応する商品がないことを伝え、10$、50$、100$、または1000$以上のいずれかを指定するようキャラクターらしく伝えてください。300文字以内で、メンションは含めないでください。"
+                + f"\n【指示】対応する商品がないことを伝え、10$、50$、100$、または1000$以上のいずれかを指定するようキャラクターらしく伝えてください。現在の為替レート状況（通貨高／通貨安）についても軽くセリフに含めても構いません。300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "+P (未登録商品)")
             if not reply:
