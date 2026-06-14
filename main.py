@@ -80,7 +80,7 @@ def check_and_update_rates_on_load(data):
     except Exception:
         last_update = now - timedelta(days=1) # Force update if invalid
         
-    interval = data.get("rate_update_interval_seconds", 600) # Default to 10 minutes (600 seconds)
+    interval = data.get("rate_update_interval_seconds", 60) # Default to 10 minutes (600 seconds)
     # If interval or more has passed
     if (now - last_update).total_seconds() >= interval:
         update_exchange_rates(data, now)
@@ -706,7 +706,7 @@ async def on_note(note):
             + f"\n【指示】現在の為替レートとあなたの貯金残高をキャラクターのセリフとして報告してください。"
             + f"CBC（あなたの通貨）とOGC（隣のOrangePiの通貨、ライバルなので少し気になる様子を見せても良いです）のレートを分かりやすく伝えてください。"
             + f"現在の為替状況（通貨高で価値が高くなっているか、通貨安で安くなっているか）について、それぞれの通貨ごとにキャラクターらしく具体的にコメントしてください（例: CBCが高くなっているなら『私の通貨価値は高くて強い！』など）。"
-            + f"為替は1時間ごとに変動することを軽く付け加えても良いです。300文字以内で、メンションは含めないでください。"
+            + f"為替は1分ごとに変動することを軽く付け加えても良いです。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+D (為替レート確認)")
         if not reply:
@@ -715,7 +715,7 @@ async def on_note(note):
                 f"・1 $SBC = {rate_cbc['current']:.2f} CBC (前回比: {change_cbc}) [デフォルト: 100 CBC]\n"
                 f"・1 $SBC = {rate_ogc['current']:.2f} OGC (前回比: {change_ogc}) [デフォルト: 100 OGC]\n\n"
                 f"現在の貯金: {bot_state['balance_cbc']:.2f} CBC\n"
-                f"※ 為替レートは1時間ごとに自動変動するよ！"
+                f"※ 為替レートは1分ごとに自動変動するよ！"
             )
             
         mk.notes_create(
