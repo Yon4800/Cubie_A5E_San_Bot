@@ -91,7 +91,7 @@ def load_economy():
     # Default state structure
     default_state = {
         "salary_cooldown_seconds": 86400,     # Default to 24 hours
-        "rate_update_interval_seconds": 60,   # Default to 10 minutes
+        "rate_update_interval_seconds": 60,   # Default to 1 minute
         "rates": {
             "CBC": {"current": 100.0, "previous": 100.0},
             "OGC": {"current": 100.0, "previous": 100.0}
@@ -435,7 +435,7 @@ schedule.every().day.at(oyatsu).do(job)
 schedule.every().day.at(yuuhann).do(job)
 schedule.every().day.at(oyasumi).do(job)
 schedule.every().day.at(oyasumi2).do(job)
-schedule.every(10).minutes.do(background_update_rates)
+schedule.every(1).minutes.do(background_update_rates)
 
 
 async def teiki():
