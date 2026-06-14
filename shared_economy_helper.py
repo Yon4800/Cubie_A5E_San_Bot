@@ -28,6 +28,18 @@ def get_economy_filepath():
     parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.abspath(os.path.join(parent_dir, "shared_economy.json"))
 
+def log_rates_to_history(cbc_rate, ogc_rate):
+    history_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rates_history.csv")
+    file_exists = os.path.exists(history_file)
+    now_str = datetime.now().isoformat()
+    try:
+        with open(history_file, 'a', encoding='utf-8') as f:
+            if not file_exists:
+                f.write("timestamp,cbc,ogc\n")
+            f.write(f"{now_str},{cbc_rate},{ogc_rate}\n")
+    except Exception as e:
+        print(f"Error logging rates to history: {e}")
+
 def update_exchange_rates(data, now):
     for coin in ["CBC", "OGC"]:
         if "rates" not in data:
@@ -51,6 +63,8 @@ def update_exchange_rates(data, now):
         data["rates"][coin]["current"] = new_rate
         
     data["last_rate_update"] = now.isoformat()
+    log_rates_to_history(data["rates"]["CBC"]["current"], data["rates"]["OGC"]["current"])
+
 
 def check_and_update_rates_on_load(data):
     now = datetime.now()
@@ -183,3 +197,105 @@ def get_user_state(data, user_id, username=None, display_name=None):
     if display_name:
         user_data["display_name"] = display_name
     return user_data
+
+def generate_history_chart_img():
+    history_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rates_history.csv")
+    if not os.path.exists(history_file):
+        return None
+        
+    timestamps = []
+    cbc_data = []
+    ogc_data = []
+    
+    try:
+        with open(history_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Get headers and rows
+        rows = [line.strip().split(',') for line in lines[1:] if line.strip()]
+        
+        # Take last 40 entries
+        rows = rows[-40:]
+        
+        for row in rows:
+            if len(row) >= 3:
+                # Format timestamp (e.g., "06-14 14:30")
+                dt = datetime.fromisoformat(row[0])
+                time_str = dt.strftime("%m-%d %H:%M")
+                timestamps.append(time_str)
+                cbc_data.append(float(row[1]))
+                ogc_data.append(float(row[2]))
+    except Exception as e:
+        print(f"Error reading history for chart: {e}")
+        return None
+        
+    if not cbc_data:
+        return None
+        
+    # Construct QuickChart payload
+    chart_config = {
+        "type": "line",
+        "data": {
+            "labels": timestamps,
+            "datasets": [
+                {
+                    "label": "CBC (Cubie)",
+                    "data": cbc_data,
+                    "borderColor": "#6366f1",
+                    "fill": False,
+                    "pointRadius": 1
+                },
+                {
+                    "label": "OGC (OrangePi)",
+                    "data": ogc_data,
+                    "borderColor": "#f97316",
+                    "fill": False,
+                    "pointRadius": 1
+                }
+            ]
+        },
+        "options": {
+            "title": {
+                "display": True,
+                "text": "SBC exchange rate history ($SBC)",
+                "fontColor": "#ffffff"
+            },
+            "legend": {
+                "labels": {
+                    "fontColor": "#94a3b8"
+                }
+            },
+            "scales": {
+                "xAxes": [{
+                    "gridLines": {"color": "rgba(255,255,255,0.05)"},
+                    "ticks": {"fontColor": "#64748b", "maxTicksLimit": 6}
+                }],
+                "yAxes": [{
+                    "gridLines": {"color": "rgba(255,255,255,0.05)"},
+                    "ticks": {"fontColor": "#64748b"}
+                }]
+            }
+        }
+    }
+    
+    # Generate QuickChart request URL
+    import json
+    import urllib.parse
+    config_str = json.dumps(chart_config)
+    encoded_config = urllib.parse.quote(config_str)
+    chart_url = f"https://quickchart.io/chart?c={encoded_config}&bg=070a13&w=600&h=400"
+    
+    try:
+        res = requests.get(chart_url, timeout=10)
+        if res.status_code == 200:
+            # Save to temporary file
+            temp_dir = tempfile.gettempdir()
+            tmp_path = os.path.join(temp_dir, f"rate_chart_{int(datetime.now().timestamp())}.png")
+            with open(tmp_path, 'wb') as f:
+                f.write(res.content)
+            return tmp_path
+    except Exception as e:
+        print(f"Error fetching chart image: {e}")
+        
+    return None
+

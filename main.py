@@ -12,6 +12,9 @@ import random
 import re
 import tempfile
 import requests
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
+
 
 try:
     import psutil
@@ -454,6 +457,8 @@ async def on_note(note):
     is_wallet_cmd = any(cmd in note_text for cmd in ["+W", "+wallet", "+WALLET"])
     is_shop_cmd = any(cmd in note_text for cmd in ["+shop", "+SHOP"])
     is_buy_cmd = any(cmd in note_text for cmd in ["+buy", "+BUY"])
+    is_graph_cmd = any(cmd in note_text for cmd in ["+G", "+graph", "+GRAPH"])
+
     
     is_cs = "+CS" in note_text
     is_sc = "+SC" in note_text
@@ -971,6 +976,54 @@ async def on_note(note):
         reply_note(reply)
         return
 
+    # Check for "+G" (Exchange Rates Graph)
+    if is_graph_cmd:
+        try:
+            mk.notes_reactions_create(note_id=note["id"], reaction="📈")
+        except Exception:
+            pass
+            
+        from shared_economy_helper import generate_history_chart_img
+        
+        tmp_path = generate_history_chart_img()
+        
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                with open(tmp_path, "rb") as f:
+                    drive_file = mk.drive_files_create(f)
+                file_id = drive_file["id"]
+                
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+                
+                instr = (
+                    system_instruction
+                    + f"\n\n【状況】ユーザーから為替レートの推移グラフ画像（+G）の表示要求がありました。"
+                    + f"\n画像（PNG）はすでに生成され、Misskeyのドライブ経由で添付されています。"
+                    + f"\n【指示】グラフ画像を添付して返信する旨を、あなたのキャラクターらしく可愛らしく、または少しツンツンと報告してください。300文字以内で、メンションは含めないでください。"
+                )
+                reply = generate_llm_reply(instr, "+G (為替レートグラフ確認)")
+                if not reply:
+                    reply = "為替レートの推移グラフ（最新の40エントリー）を生成したよ！確認してみてね。"
+                
+                mk.notes_create(
+                    text=reply,
+                    reply_id=note["id"],
+                    file_ids=[file_id],
+                    visibility=NoteVisibility.HOME,
+                    no_extract_mentions=True
+                )
+                return
+            except Exception as e:
+                print(f"Error uploading/posting chart: {e}")
+                
+        reply = "ごめんなさい、為替グラフ画像の生成に失敗しちゃったみたい。時間を置いてもう一度試してみてね！"
+        reply_note(reply, "❌")
+        return
+
+
     # Check for "+P" (Shop Purchases)
     if "+P" in note["text"]:
         match = re.search(r'(\d+)\s*\$\s*\+P', note["text"])
@@ -1213,9 +1266,24 @@ async def on_follow(user):
         pass
 
 
-async def main():
-    await asyncio.gather(runner(), teiki())
+class CORSHTTPRequestHandler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        super().end_headers()
 
+def start_web_server():
+    server_address = ('', 8080)
+    httpd = HTTPServer(server_address, CORSHTTPRequestHandler)
+    print("Starting dashboard web server on port 8080...")
+    httpd.serve_forever()
+
+async def main():
+    # Start the HTTP server thread for the dashboard
+    t = threading.Thread(target=start_web_server, daemon=True)
+    t.start()
+    
+    await asyncio.gather(runner(), teiki())
 
 if __name__ == "__main__":
     asyncio.run(main())
+

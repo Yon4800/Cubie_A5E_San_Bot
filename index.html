@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cubie & OrangePi 為替レートダッシュボード</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+JP:wght@300;400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #070a13;
+            --card-bg: rgba(15, 22, 42, 0.65);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --cbc-color: #6366f1; /* Indigo */
+            --cbc-glow: rgba(99, 102, 241, 0.25);
+            --ogc-color: #f97316; /* Orange */
+            --ogc-glow: rgba(249, 115, 22, 0.25);
+            --accent-success: #10b981;
+            --accent-danger: #ef4444;
+            --font-family: 'Outfit', 'Noto Sans JP', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(249, 115, 22, 0.06) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        header {
+            padding: 2rem 2rem 1rem 2rem;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-area h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #a5b4fc 0%, #fed7aa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-area p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 0.2rem;
+        }
+
+        .status-badge {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--card-border);
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-success);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent-success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        main {
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 1rem 2rem 3rem 2rem;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 1.5rem;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .coin-card {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .coin-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+        }
+
+        .coin-card.cbc::before { background-color: var(--cbc-color); }
+        .coin-card.ogc::before { background-color: var(--ogc-color); }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .coin-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .coin-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 50px;
+            font-weight: 600;
+        }
+
+        .cbc .coin-badge {
+            background: rgba(99, 102, 241, 0.15);
+            color: #a5b4fc;
+        }
+
+        .ogc .coin-badge {
+            background: rgba(249, 115, 22, 0.15);
+            color: #fed7aa;
+        }
+
+        .rate-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: baseline;
+            gap: 0.3rem;
+        }
+
+        .rate-value span {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .trend-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .trend-up { color: var(--accent-danger); } /* value goes up = inflation / weaker currency */
+        .trend-down { color: var(--accent-success); } /* value goes down = stronger currency */
+        .trend-neutral { color: var(--text-secondary); }
+
+        .chart-card {
+            grid-column: 1 / -1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(7, 10, 19, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 20px;
+            z-index: 10;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            transition: opacity 0.5s ease;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--card-border);
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            header { padding: 1.5rem 1rem; }
+            main { padding: 1rem; }
+            .rate-value { font-size: 2rem; }
+            .chart-container { height: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo-area">
+            <h1>Cubie & OrangePi 為替ダッシュボード</h1>
+            <p>SBC経済圏の為替レート推移 ($SBC 基準)</p>
+        </div>
+        <div class="status-badge">
+            <div class="pulse-dot"></div>
+            <span id="update-timer">自動更新中</span>
+        </div>
+    </header>
+
+    <main>
+        <div class="stats-grid">
+            <!-- CBC (Cubie Coin) Card -->
+            <div class="card coin-card cbc">
+                <div class="card-header">
+                    <span class="coin-title">CBC (Cubie Coin)</span>
+                    <span class="coin-badge">キュビーさんの通貨</span>
+                </div>
+                <div class="rate-value" id="cbc-rate">--.-- <span>CBC/$SBC</span></div>
+                <div class="trend-info" id="cbc-trend">
+                    データロード中...
+                </div>
+            </div>
+
+            <!-- OGC (OrangePi Coin) Card -->
+            <div class="card coin-card ogc">
+                <div class="card-header">
+                    <span class="coin-title">OGC (OrangePi Coin)</span>
+                    <span class="coin-badge">隣のオパジの通貨</span>
+                </div>
+                <div class="rate-value" id="ogc-rate">--.-- <span>OGC/$SBC</span></div>
+                <div class="trend-info" id="ogc-trend">
+                    データロード中...
+                </div>
+            </div>
+        </div>
+
+        <!-- Line Chart Card -->
+        <div class="card chart-card">
+            <div class="card-header">
+                <span class="coin-title">為替レート推移グラフ</span>
+                <span style="font-size: 0.8rem; color: var(--text-secondary);" id="last-update-time">最終更新: 未取得</span>
+            </div>
+            <div class="chart-container">
+                <div id="chart-loading" class="loading-overlay">データを取得しています...</div>
+                <canvas id="rateChart"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>Radxa Cubie A5E & OrangePi Zero 3 Local Economy API Monitor</p>
+    </footer>
+
+    <script>
+        let chart = null;
+        const autoRefreshInterval = 30000; // 30 seconds
+
+        // Custom CSV Parser
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            const data = [];
+            for (let i = 1; i < lines.length; i++) {
+                const row = lines[i].split(',');
+                if (row.length >= 3) {
+                    data.push({
+                        timestamp: new Date(row[0]),
+                        cbc: parseFloat(row[1]),
+                        ogc: parseFloat(row[2])
+                    });
+                }
+            }
+            return data;
+        }
+
+        // Format Date to Local String
+        function formatTime(date) {
+            return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        function formatDateTime(date) {
+            return date.toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+
+        // Calculate Rate status description (standard value is 100)
+        function getRateStatus(rate) {
+            if (rate < 100.0) {
+                return { text: "通貨高 (お得)", isGood: true };
+            } else if (rate > 100.0) {
+                return { text: "通貨安 (損)", isGood: false };
+            } else {
+                return { text: "基準値 (100.0)", isNeutral: true };
+            }
+        }
+
+        // Fetch and Render Data
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/rates_history.csv?t=' + new Date().getTime());
+                if (!response.ok) {
+                    throw new Error('CSV file not found');
+                }
+                const csvText = await response.text();
+                const history = parseCSV(csvText);
+
+                if (history.length === 0) {
+                    document.getElementById('chart-loading').innerText = 'データ履歴がまだありません。レートの変動をお待ちください。';
+                    return;
+                }
+
+                // Hide loading overlay
+                document.getElementById('chart-loading').classList.add('hidden');
+
+                // Get latest data
+                const latest = history[history.length - 1];
+                const previous = history.length > 1 ? history[history.length - 2] : latest;
+
+                // Update Stats
+                updateCoinStats('cbc', latest.cbc, previous.cbc);
+                updateCoinStats('ogc', latest.ogc, previous.ogc);
+
+                document.getElementById('last-update-time').innerText = `最終同期: ${formatTime(latest.timestamp)}`;
+
+                // Update or Create Chart
+                renderChart(history);
+
+            } catch (error) {
+                console.error('Error fetching rate history:', error);
+                document.getElementById('chart-loading').innerText = 'エラー: 為替履歴データを取得できませんでした。';
+            }
+        }
+
+        function updateCoinStats(coin, current, prev) {
+            const rateEl = document.getElementById(`${coin}-rate`);
+            const trendEl = document.getElementById(`${coin}-trend`);
+            
+            rateEl.innerHTML = `${current.toFixed(2)} <span>${coin.toUpperCase()}/$SBC</span>`;
+            
+            const diff = current - prev;
+            const status = getRateStatus(current);
+            let statusHtml = '';
+
+            if (status.isGood) {
+                statusHtml = `<span style="color: var(--accent-success); font-weight: 600;">${status.text}</span>`;
+            } else if (status.isNeutral) {
+                statusHtml = `<span style="color: var(--text-secondary); font-weight: 600;">${status.text}</span>`;
+            } else {
+                statusHtml = `<span style="color: var(--accent-danger); font-weight: 600;">${status.text}</span>`;
+            }
+
+            let changeHtml = '';
+            if (diff > 0) {
+                changeHtml = `<span class="trend-up">↑ +${diff.toFixed(2)} (インフレ)</span>`;
+            } else if (diff < 0) {
+                changeHtml = `<span class="trend-down">↓ ${diff.toFixed(2)} (デフレ)</span>`;
+            } else {
+                changeHtml = `<span class="trend-neutral">→ 変動なし</span>`;
+            }
+
+            trendEl.innerHTML = `${statusHtml} &nbsp;|&nbsp; ${changeHtml}`;
+        }
+
+        function renderChart(history) {
+            // Keep maximum last 50 data points for performance and clarity
+            const chartData = history.slice(-50);
+            
+            const labels = chartData.map(d => formatDateTime(d.timestamp));
+            const cbcData = chartData.map(d => d.cbc);
+            const ogcData = chartData.map(d => d.ogc);
+
+            if (chart) {
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = cbcData;
+                chart.data.datasets[1].data = ogcData;
+                chart.update('none'); // Update without full animation for smoother real-time feel
+            } else {
+                const ctx = document.getElementById('rateChart').getContext('2d');
+                
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'CBC (Cubie Coin)',
+                                data: cbcData,
+                                borderColor: '#6366f1',
+                                backgroundColor: 'rgba(99, 102, 241, 0.04)',
+                                borderWidth: 3,
+                                pointBackgroundColor: '#6366f1',
+                                pointHoverRadius: 6,
+                                tension: 0.3,
+                                fill: true
+                            },
+                            {
+                                label: 'OGC (OrangePi Coin)',
+                                data: ogcData,
+                                borderColor: '#f97316',
+                                backgroundColor: 'rgba(249, 115, 22, 0.03)',
+                                borderWidth: 3,
+                                pointBackgroundColor: '#f97316',
+                                pointHoverRadius: 6,
+                                tension: 0.3,
+                                fill: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                labels: {
+                                    color: '#94a3b8',
+                                    font: { family: 'Outfit, Noto Sans JP', size: 12, weight: '600' }
+                                }
+                            },
+                            tooltip: {
+                                padding: 12,
+                                bodyFont: { family: 'Outfit, Noto Sans JP', size: 13 },
+                                titleFont: { family: 'Outfit, Noto Sans JP', size: 12 }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                                ticks: { color: '#64748b', font: { family: 'Outfit' }, maxTicksLimit: 8 }
+                            },
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                                ticks: { color: '#64748b', font: { family: 'Outfit' } },
+                                suggestedMin: 80,
+                                suggestedMax: 120
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Initialize and Start Auto Refresh
+        updateDashboard();
+        setInterval(updateDashboard, autoRefreshInterval);
+    </script>
+</body>
+</html>

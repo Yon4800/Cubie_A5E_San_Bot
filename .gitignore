@@ -1,4 +1,6 @@
 .env
 .venv
 .venv/*
-mockoon-environment.json
+mockoon-environment.json
+rates_history.csv
+
