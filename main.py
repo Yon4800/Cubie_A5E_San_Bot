@@ -182,26 +182,38 @@ def save_economy(data):
             print(f"Error saving economy state: {e}")
 
 def get_bot_state(data, bot_name="Cubie_A5E_San"):
+    is_modified = False
     if bot_name not in data["bots"]:
+        initial_paid_time = (datetime.now() - timedelta(days=1)).isoformat()
         data["bots"][bot_name] = {
             "balance_cbc": 0.0,
-            "last_salary_paid_time": datetime.now().isoformat(),
+            "last_salary_paid_time": initial_paid_time,
             "break_until": None,
             "virtual_pc_count": 0,
             "items": []
         }
+        is_modified = True
     bot_data = data["bots"][bot_name]
     # Ensure fields exist
     if "balance_cbc" not in bot_data:
         bot_data["balance_cbc"] = 0.0
+        is_modified = True
     if "last_salary_paid_time" not in bot_data:
-        bot_data["last_salary_paid_time"] = datetime.now().isoformat()
+        bot_data["last_salary_paid_time"] = (datetime.now() - timedelta(days=1)).isoformat()
+        is_modified = True
     if "break_until" not in bot_data:
         bot_data["break_until"] = None
+        is_modified = True
     if "virtual_pc_count" not in bot_data:
         bot_data["virtual_pc_count"] = 0
+        is_modified = True
     if "items" not in bot_data:
         bot_data["items"] = []
+        is_modified = True
+        
+    if is_modified:
+        save_economy(data)
+        
     return bot_data
 
 def is_bot_on_break(bot_data):
