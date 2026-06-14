@@ -3,4 +3,6 @@
 .venv/*
 mockoon-environment.json
 rates_history.csv
+shared_economy.json
+
 

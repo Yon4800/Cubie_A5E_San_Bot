@@ -305,8 +305,25 @@ def jobX(current_time):
         else:
             safe_text = "定期投稿の時間だよ！今日も24時間稼働中！（ちょっと接続状態が悪くてうまく喋れないかも…）"
             
+    # グラフ画像の生成とアップロード
+    file_ids = None
+    try:
+        from shared_economy_helper import generate_history_chart_img
+        tmp_path = generate_history_chart_img()
+        if tmp_path and os.path.exists(tmp_path):
+            with open(tmp_path, "rb") as f:
+                drive_file = mk.drive_files_create(f)
+            file_ids = [drive_file["id"]]
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"Error generating/uploading chart for scheduled post: {e}")
+
     mk.notes_create(
         safe_text,
+        file_ids=file_ids,
         visibility=NoteVisibility.HOME,
         no_extract_mentions=True,
     )
