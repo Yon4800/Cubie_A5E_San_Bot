@@ -418,7 +418,7 @@ async def on_note(note):
             except Exception:
                 pass
         
-        final_text = f"{text}\n(きゅびーさんとお話ししたため、100 CBCを獲得しました！)"
+        final_text = text
         mk.notes_create(
             text=final_text,
             reply_id=note["id"],
