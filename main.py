@@ -55,13 +55,16 @@ def update_exchange_rates(data, now):
         
         current = data["rates"][coin]["current"]
         
-        # Determine fluctuation (more frequent and drastic)
+        # Determine fluctuation (absolute change)
         if random.random() < 0.20:  # 20% chance of sudden market shock
-            change_percent = random.uniform(-0.60, 0.60)
+            change = random.uniform(0.5, 4.0)
         else:
-            change_percent = random.uniform(-0.25, 0.25)
+            change = random.uniform(0.1, 0.5)
             
-        new_rate = current * (1 + change_percent)
+        if random.random() < 0.5:
+            change = -change
+            
+        new_rate = current + change
         # Clamp to [10.0, 500.0] for wider movement
         new_rate = max(10.0, min(500.0, round(new_rate, 2)))
         
