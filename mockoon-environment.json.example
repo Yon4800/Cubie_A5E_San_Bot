@@ -1,21 +1,23 @@
 {
-  "uuid": "mockoon-env-misskey-bots",
+  "uuid": "6f3cf046-24ba-4fbf-93f5-081cfb5fa216",
   "lastMigration": 32,
   "name": "Misskey Bots Mock API",
   "endpointPrefix": "",
   "latency": 0,
   "port": 4444,
   "hostname": "0.0.0.0",
+  "folders": [],
   "routes": [
     {
-      "uuid": "route-get-economy",
+      "uuid": "8f5a2b0b-99f5-46f3-8b77-3e112d7b5b5c",
       "type": "http",
       "method": "get",
       "endpoint": "economy",
+      "documentation": "",
       "responses": [
         {
-          "uuid": "resp-get-economy",
-          "body": "{{#if (getGlobalVar 'economy')}}{{{stringify (getGlobalVar 'economy')}}}{{else}}{\n  \"salary_cooldown_seconds\": 86400,\n  \"rate_update_interval_seconds\": 60,\n  \"rates\": {\n    \"CBC\": {\"current\": 100.0, \"previous\": 100.0},\n    \"OGC\": {\"current\": 100.0, \"previous\": 100.0}\n  },\n  \"last_rate_update\": \"2026-06-14T13:51:14\",\n  \"bots\": {},\n  \"users\": {}\n}{{/if}}",
+          "uuid": "f2c83c27-31b2-4d9f-93d3-8bf64f0b6e7a",
+          "body": "{{#if (getGlobalVar 'economy')}}{{{stringify (getGlobalVar 'economy')}}}{{else}}{\n  \"salary_cooldown_seconds\": 86400,\n  \"rate_update_interval_seconds\": 60,\n  \"rates\": {\n    \"CBC\": {\n      \"current\": 105.98,\n      \"previous\": 105.65\n    },\n    \"OGC\": {\n      \"current\": 99.15,\n      \"previous\": 98.37\n    }\n  },\n  \"last_rate_update\": \"2026-06-14T14:38:51.969244\",\n  \"bots\": {\n    \"Cubie_A5E_San\": {\n      \"balance_cbc\": 25585.11,\n      \"last_salary_paid_time\": \"2026-06-14T13:11:09.756974\",\n      \"break_until\": null,\n      \"virtual_pc_count\": 0,\n      \"items\": []\n    }\n  },\n  \"users\": {\n    \"ak9639fbd1ia0003\": {\n      \"balance_sbc\": 0,\n      \"balance_cbc\": 12381,\n      \"balance_ogc\": 100,\n      \"inventory\": [],\n      \"username\": \"Yon4800\",\n      \"display_name\": \"よんぱちさんーーーーーーーーーーーーー:neko_tired2:\"\n    }\n  }\n}{{/if}}",
           "latency": 0,
           "statusCode": 200,
           "label": "",
@@ -28,19 +30,30 @@
           "filePath": "",
           "sendFileAsBody": false,
           "rules": [],
-          "rulesOperator": "OR"
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": true,
+          "crudKey": "id",
+          "callbacks": []
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "responseMode": null,
+      "streamingMode": null,
+      "streamingInterval": 0
     },
     {
-      "uuid": "route-put-economy",
+      "uuid": "d8f4e241-11b9-4a0b-90cb-4f16ea2d8f6d",
       "type": "http",
       "method": "put",
       "endpoint": "economy",
+      "documentation": "",
       "responses": [
         {
-          "uuid": "resp-put-economy",
+          "uuid": "a3b2b6c7-31b2-4d9f-93d3-8bf64f0b6e7b",
           "body": "{{setGlobalVar 'economy' (bodyRaw)}}{{{stringify (getGlobalVar 'economy')}}}",
           "latency": 0,
           "statusCode": 200,
@@ -54,19 +67,30 @@
           "filePath": "",
           "sendFileAsBody": false,
           "rules": [],
-          "rulesOperator": "OR"
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": true,
+          "crudKey": "id",
+          "callbacks": []
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "responseMode": null,
+      "streamingMode": null,
+      "streamingInterval": 0
     },
     {
-      "uuid": "route-get-gauge-state",
+      "uuid": "a2f1b402-9a3b-41f2-ba2c-5df6ee4d0b1a",
       "type": "http",
       "method": "get",
       "endpoint": "gauge_state",
+      "documentation": "",
       "responses": [
         {
-          "uuid": "resp-get-gauge-state",
+          "uuid": "f2c83c27-31b2-4d9f-93d3-8bf64f0b6e7c",
           "body": "{{#if (getGlobalVar 'gauge_state')}}{{{stringify (getGlobalVar 'gauge_state')}}}{{else}}{\n  \"crazy_gauge\": 65,\n  \"last_reply_time\": \"2026-06-11T20:51:23.045588\"\n}{{/if}}",
           "latency": 0,
           "statusCode": 200,
@@ -80,19 +104,30 @@
           "filePath": "",
           "sendFileAsBody": false,
           "rules": [],
-          "rulesOperator": "OR"
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": true,
+          "crudKey": "id",
+          "callbacks": []
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "responseMode": null,
+      "streamingMode": null,
+      "streamingInterval": 0
     },
     {
-      "uuid": "route-put-gauge-state",
+      "uuid": "c3e2d1a0-12b9-4c0a-90cb-5f16eb2d8f7e",
       "type": "http",
       "method": "put",
       "endpoint": "gauge_state",
+      "documentation": "",
       "responses": [
         {
-          "uuid": "resp-put-gauge-state",
+          "uuid": "a3b2b6c7-31b2-4d9f-93d3-8bf64f0b6e7d",
           "body": "{{setGlobalVar 'gauge_state' (bodyRaw)}}{{{stringify (getGlobalVar 'gauge_state')}}}",
           "latency": 0,
           "statusCode": 200,
@@ -106,19 +141,30 @@
           "filePath": "",
           "sendFileAsBody": false,
           "rules": [],
-          "rulesOperator": "OR"
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": true,
+          "crudKey": "id",
+          "callbacks": []
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "responseMode": null,
+      "streamingMode": null,
+      "streamingInterval": 0
     },
     {
-      "uuid": "route-get-login-bonus",
+      "uuid": "e4d3c2b1-13b9-4d0a-90cb-6f16ec2d8f8f",
       "type": "http",
       "method": "get",
       "endpoint": "login_bonus",
+      "documentation": "",
       "responses": [
         {
-          "uuid": "resp-get-login-bonus",
+          "uuid": "f2c83c27-31b2-4d9f-93d3-8bf64f0b6e7e",
           "body": "{{#if (getGlobalVar 'login_bonus')}}{{{stringify (getGlobalVar 'login_bonus')}}}{{else}}{\n  \"users\": {}\n}{{/if}}",
           "latency": 0,
           "statusCode": 200,
@@ -132,19 +178,30 @@
           "filePath": "",
           "sendFileAsBody": false,
           "rules": [],
-          "rulesOperator": "OR"
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": true,
+          "crudKey": "id",
+          "callbacks": []
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "responseMode": null,
+      "streamingMode": null,
+      "streamingInterval": 0
     },
     {
-      "uuid": "route-put-login-bonus",
+      "uuid": "f5e4d3c2-14b9-4e0a-90cb-7f16ed2d8f90",
       "type": "http",
       "method": "put",
       "endpoint": "login_bonus",
+      "documentation": "",
       "responses": [
         {
-          "uuid": "resp-put-login-bonus",
+          "uuid": "a3b2b6c7-31b2-4d9f-93d3-8bf64f0b6e7f",
           "body": "{{setGlobalVar 'login_bonus' (bodyRaw)}}{{{stringify (getGlobalVar 'login_bonus')}}}",
           "latency": 0,
           "statusCode": 200,
@@ -158,19 +215,30 @@
           "filePath": "",
           "sendFileAsBody": false,
           "rules": [],
-          "rulesOperator": "OR"
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": true,
+          "crudKey": "id",
+          "callbacks": []
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "responseMode": null,
+      "streamingMode": null,
+      "streamingInterval": 0
     },
     {
-      "uuid": "route-get-opizero3-state",
+      "uuid": "0a1b2c3d-15b9-4f0a-90cb-8f16ee2d8fa1",
       "type": "http",
       "method": "get",
       "endpoint": "opizero3_state",
+      "documentation": "",
       "responses": [
         {
-          "uuid": "resp-get-opizero3-state",
+          "uuid": "f2c83c27-31b2-4d9f-93d3-8bf64f0b6e80",
           "body": "{{#if (getGlobalVar 'opizero3_state')}}{{{stringify (getGlobalVar 'opizero3_state')}}}{{else}}{\n  \"sleep_state\": {\n    \"is_sleeping\": false,\n    \"sleep_start_time\": null,\n    \"target_sleep_duration\": null,\n    \"last_sleep_check_date\": null\n  },\n  \"user_data\": {}\n}{{/if}}",
           "latency": 0,
           "statusCode": 200,
@@ -184,19 +252,30 @@
           "filePath": "",
           "sendFileAsBody": false,
           "rules": [],
-          "rulesOperator": "OR"
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": true,
+          "crudKey": "id",
+          "callbacks": []
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "responseMode": null,
+      "streamingMode": null,
+      "streamingInterval": 0
     },
     {
-      "uuid": "route-put-opizero3-state",
+      "uuid": "1b2c3d4e-16b9-5f0a-90cb-9f16ef2d8fb2",
       "type": "http",
       "method": "put",
       "endpoint": "opizero3_state",
+      "documentation": "",
       "responses": [
         {
-          "uuid": "resp-put-opizero3-state",
+          "uuid": "a3b2b6c7-31b2-4d9f-93d3-8bf64f0b6e81",
           "body": "{{setGlobalVar 'opizero3_state' (bodyRaw)}}{{{stringify (getGlobalVar 'opizero3_state')}}}",
           "latency": 0,
           "statusCode": 200,
@@ -210,14 +289,61 @@
           "filePath": "",
           "sendFileAsBody": false,
           "rules": [],
-          "rulesOperator": "OR"
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": true,
+          "crudKey": "id",
+          "callbacks": []
         }
       ],
-      "enabled": true
+      "enabled": true,
+      "responseMode": null,
+      "streamingMode": null,
+      "streamingInterval": 0
+    }
+  ],
+  "rootChildren": [
+    {
+      "type": "route",
+      "uuid": "8f5a2b0b-99f5-46f3-8b77-3e112d7b5b5c"
+    },
+    {
+      "type": "route",
+      "uuid": "d8f4e241-11b9-4a0b-90cb-4f16ea2d8f6d"
+    },
+    {
+      "type": "route",
+      "uuid": "a2f1b402-9a3b-41f2-ba2c-5df6ee4d0b1a"
+    },
+    {
+      "type": "route",
+      "uuid": "c3e2d1a0-12b9-4c0a-90cb-5f16eb2d8f7e"
+    },
+    {
+      "type": "route",
+      "uuid": "e4d3c2b1-13b9-4d0a-90cb-6f16ec2d8f8f"
+    },
+    {
+      "type": "route",
+      "uuid": "f5e4d3c2-14b9-4e0a-90cb-7f16ed2d8f90"
+    },
+    {
+      "type": "route",
+      "uuid": "0a1b2c3d-15b9-4f0a-90cb-8f16ee2d8fa1"
+    },
+    {
+      "type": "route",
+      "uuid": "1b2c3d4e-16b9-5f0a-90cb-9f16ef2d8fb2"
     }
   ],
   "proxyMode": false,
   "proxyHost": "",
+  "proxyRemovePrefix": false,
+  "proxyReqHeaders": [],
+  "proxyResHeaders": [],
   "cors": true,
   "headers": [
     {
@@ -232,5 +358,7 @@
       "key": "Access-Control-Allow-Headers",
       "value": "Content-Type, Authorization"
     }
-  ]
+  ],
+  "data": [],
+  "callbacks": []
 }
