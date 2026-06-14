@@ -25,161 +25,7 @@ Apikey = os.getenv("APIKEY")  # Gemini API Key
 mk = Misskey(Server)
 mk.token = Token
 
-# Economy State File Path (default to current directory, or a URL)
-ECONOMY_STATE_PATH = os.getenv("ECONOMY_STATE_PATH", "shared_economy.json")
-ECONOMY_HTTP_HEADER_KEY = os.getenv("ECONOMY_HTTP_HEADER_KEY")
-ECONOMY_HTTP_HEADER_VALUE = os.getenv("ECONOMY_HTTP_HEADER_VALUE")
-
-def get_http_headers():
-    headers = {"Content-Type": "application/json"}
-    if ECONOMY_HTTP_HEADER_KEY and ECONOMY_HTTP_HEADER_VALUE:
-        headers[ECONOMY_HTTP_HEADER_KEY] = ECONOMY_HTTP_HEADER_VALUE
-    return headers
-
-def get_economy_filepath():
-    path = ECONOMY_STATE_PATH
-    if path.startswith(("http://", "https://")):
-        return path
-    if not os.path.isabs(path):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.abspath(os.path.join(base_dir, path))
-    return path
-
-def update_exchange_rates(data, now):
-    for coin in ["CBC", "OGC"]:
-        # Ensure rates structure exists
-        if "rates" not in data:
-            data["rates"] = {}
-        if coin not in data["rates"]:
-            data["rates"][coin] = {"current": 100.0, "previous": 100.0}
-        
-        current = data["rates"][coin]["current"]
-        
-        # Determine fluctuation (absolute change)
-        if random.random() < 0.20:  # 20% chance of sudden market shock
-            change = random.uniform(0.5, 4.0)
-        else:
-            change = random.uniform(0.1, 0.5)
-            
-        if random.random() < 0.5:
-            change = -change
-            
-        new_rate = current + change
-        # Clamp to [10.0, 500.0] for wider movement
-        new_rate = max(10.0, min(500.0, round(new_rate, 2)))
-        
-        data["rates"][coin]["previous"] = current
-        data["rates"][coin]["current"] = new_rate
-        
-    data["last_rate_update"] = now.isoformat()
-
-def check_and_update_rates_on_load(data):
-    now = datetime.now()
-    try:
-        last_update = datetime.fromisoformat(data["last_rate_update"])
-    except Exception:
-        last_update = now - timedelta(days=1) # Force update if invalid
-        
-    interval = data.get("rate_update_interval_seconds", 60) # Default to 10 minutes (600 seconds)
-    # If interval or more has passed
-    if (now - last_update).total_seconds() >= interval:
-        update_exchange_rates(data, now)
-        return True
-    return False
-
-def load_economy():
-    filepath = get_economy_filepath()
-    now_str = datetime.now().isoformat()
-    
-    # Default state structure
-    default_state = {
-        "salary_cooldown_seconds": 86400,     # Default to 24 hours
-        "rate_update_interval_seconds": 60,   # Default to 1 minute
-        "rates": {
-            "CBC": {"current": 100.0, "previous": 100.0},
-            "OGC": {"current": 100.0, "previous": 100.0}
-        },
-        "last_rate_update": now_str,
-        "bots": {}
-    }
-    
-    data = default_state
-    is_new = False
-    
-    if filepath.startswith(("http://", "https://")):
-        try:
-            res = requests.get(filepath, headers=get_http_headers(), timeout=5)
-            if res.status_code == 200:
-                loaded = res.json()
-                if isinstance(loaded, dict):
-                    # For services like JSONBin.io that wrap the data in a "record" key
-                    if "record" in loaded:
-                        data = loaded["record"]
-                    else:
-                        data = loaded
-            else:
-                is_new = True
-        except Exception as e:
-            print(f"Error loading remote economy state: {e}")
-            is_new = True
-    else:
-        is_new = not os.path.exists(filepath)
-        if not is_new:
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    loaded = json.load(f)
-                    if isinstance(loaded, dict):
-                        data = loaded
-            except Exception as e:
-                print(f"Error loading economy state: {e}")
-                is_new = True
-            
-    # Ensure structure exists
-    if "salary_cooldown_seconds" not in data:
-        data["salary_cooldown_seconds"] = default_state["salary_cooldown_seconds"]
-    if "rate_update_interval_seconds" not in data:
-        data["rate_update_interval_seconds"] = default_state["rate_update_interval_seconds"]
-        
-    if "rates" not in data:
-        data["rates"] = default_state["rates"]
-    for coin in ["CBC", "OGC"]:
-        if coin not in data["rates"]:
-            data["rates"][coin] = {"current": 100.0, "previous": 100.0}
-        elif not isinstance(data["rates"][coin], dict):
-            data["rates"][coin] = {"current": float(data["rates"][coin]), "previous": float(data["rates"][coin])}
-            
-    if "last_rate_update" not in data:
-        data["last_rate_update"] = now_str
-    if "bots" not in data:
-        data["bots"] = {}
-        
-    # Check if rate needs an update
-    updated = check_and_update_rates_on_load(data)
-    if updated or is_new:
-        save_economy(data)
-        
-    return data
-
-def save_economy(data):
-    filepath = get_economy_filepath()
-    if filepath.startswith(("http://", "https://")):
-        try:
-            res = requests.put(filepath, json=data, headers=get_http_headers(), timeout=5)
-            if res.status_code not in (200, 201, 204):
-                print(f"Failed to save remote economy state, status: {res.status_code}, response: {res.text}")
-        except Exception as e:
-            print(f"Error saving remote economy state: {e}")
-    else:
-        dir_name = os.path.dirname(filepath)
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name, exist_ok=True)
-        try:
-            with tempfile.NamedTemporaryFile('w', dir=dir_name, delete=False, encoding='utf-8') as tf:
-                json.dump(data, tf, indent=2, ensure_ascii=False)
-                temp_name = tf.name
-            os.replace(temp_name, filepath)
-        except Exception as e:
-            print(f"Error saving economy state: {e}")
+from shared_economy_helper import load_economy, save_economy, get_user_state, update_exchange_rates
 
 def get_bot_state(data, bot_name="Cubie_A5E_San"):
     is_modified = False
@@ -556,6 +402,30 @@ async def on_note(note):
         print("Bot is on break, ignoring mention.")
         return
 
+    user_id = note["userId"]
+    user_name = note.get("user", {}).get("name") or note.get("user", {}).get("username") or "ゲスト"
+    username = note.get("user", {}).get("username", "")
+
+    # Earn CBC from talking to Cubie-san
+    user_state = get_user_state(econ_data, user_id, username, user_name)
+    user_state["balance_cbc"] = round(user_state["balance_cbc"] + 100.0, 2)
+    save_economy(econ_data)
+
+    def reply_note(text, reaction=None):
+        if reaction:
+            try:
+                mk.notes_reactions_create(note_id=note["id"], reaction=reaction)
+            except Exception:
+                pass
+        
+        final_text = f"{text}\n(きゅびーさんとお話ししたため、100 CBCを獲得しました！)"
+        mk.notes_create(
+            text=final_text,
+            reply_id=note["id"],
+            visibility=NoteVisibility.HOME,
+            no_extract_mentions=True
+        )
+
     # 共通の為替情報を作成
     rate_cbc = econ_data["rates"]["CBC"]["current"]
     rate_ogc = econ_data["rates"]["OGC"]["current"]
@@ -578,6 +448,384 @@ async def on_note(note):
         + note["user"]["name"]
         + " という方にメンションされました。"
     )
+
+    # Check for FX and Personal Shop commands
+    note_text = note.get("text", "")
+    is_wallet_cmd = any(cmd in note_text for cmd in ["+W", "+wallet", "+WALLET"])
+    is_shop_cmd = any(cmd in note_text for cmd in ["+shop", "+SHOP"])
+    is_buy_cmd = any(cmd in note_text for cmd in ["+buy", "+BUY"])
+    
+    is_cs = "+CS" in note_text
+    is_sc = "+SC" in note_text
+    is_os = "+OS" in note_text
+    is_so = "+SO" in note_text
+    is_oc = "+OC" in note_text
+    is_co = "+CO" in note_text
+
+    SHOP_ITEMS = {
+        1: {"name": "SBC研究者バッジ", "cost": 10, "desc": "SBCが大好きな研究者の証。"},
+        2: {"name": "オパジゼロサンのお守り", "cost": 30, "desc": "オパジゼロサンのキーホルダー型お守り。"},
+        3: {"name": "ロックス特製・嘘センサーの破片", "cost": 50, "desc": "的外れなことしか言えなくなる気がする基板の切れ端。"},
+        4: {"name": "オパジフォプロ公認・SBCエリート認定証", "cost": 100, "desc": "傲慢なオパジフォプロに認められた気になれる高級カード。"},
+        5: {"name": "きゅびーさんの超高級アルミヒートシンク", "cost": 200, "desc": "キュビーさんの熱を冷却する、ファン付き超高効率ヒートシンク。"},
+        6: {"name": "きゅびーさん専用・超高性能x86サーバー", "cost": 1000, "desc": "キュビーさんのための極上の仮想マシン用ハイエンドサーバー。"}
+    }
+
+    if is_wallet_cmd:
+        sbc = user_state["balance_sbc"]
+        cbc = user_state["balance_cbc"]
+        ogc = user_state["balance_ogc"]
+        inv = user_state["inventory"]
+        inv_str = ", ".join(inv) if inv else "なし"
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーから自身のウォレット残高確認（+W / +wallet）の要求がありました。"
+            + f"\n・$SBC残高: {sbc:.2f} $SBC"
+            + f"\n・CBC残高: {cbc:.2f} CBC"
+            + f"\n・OGC残高: {ogc:.2f} OGC"
+            + f"\n・所持アイテム: {inv_str}"
+            + f"\n【指示】現在のユーザーの資産とアイテム情報を、あなたのキャラクターらしく報告してください。現在の為替レートについても少し触れ、通貨高や通貨安について言及してください。300文字以内で、メンションは含めないでください。"
+        )
+        reply = generate_llm_reply(instr, "+W (ウォレット確認)")
+        if not reply:
+            reply = (
+                f"あなたのウォレット情報だよ！\n"
+                f"・$SBC: {sbc:.2f} $SBC\n"
+                f"・CBC: {cbc:.2f} CBC\n"
+                f"・OGC: {ogc:.2f} OGC\n"
+                f"・所持アイテム: {inv_str}"
+            )
+        reply_note(reply, "👛")
+        return
+
+    elif is_shop_cmd:
+        shop_str = ""
+        for k, v in SHOP_ITEMS.items():
+            shop_str += f"\n{k}. {v['name']} (価格: {v['cost']} $SBC) - {v['desc']}"
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーから個人向けのアイテムショップ（+shop）の確認要求がありました。"
+            + f"\n【ショップアイテム一覧】:{shop_str}"
+            + f"\n【指示】ショップの品揃えをあなたのキャラクター（キュビーさん）らしく紹介してください。300文字以内で、メンションは含めないでください。購入するには「+buy <商品番号>」（例：「+buy 1」）とつぶやいてね、と案内してください。"
+        )
+        reply = generate_llm_reply(instr, "+shop (ショップ確認)")
+        if not reply:
+            reply = (
+                "個人向け $SBC ショップの品揃えだよ！\n"
+                + shop_str
+                + "\n\n購入は「+buy 商品番号」（例: +buy 1）でできるよ！"
+            )
+        reply_note(reply, "🏪")
+        return
+
+    elif is_buy_cmd:
+        match = re.search(r'\+buy\s*(\d+)', note_text, re.IGNORECASE)
+        if not match:
+            match = re.search(r'(\d+)\s*\+buy', note_text, re.IGNORECASE)
+            
+        if not match:
+            reply = "商品番号がうまく読み取れなかったよ。例えば「+buy 1」のように商品番号を指定してね！"
+            reply_note(reply, "❓")
+            return
+            
+        item_id = int(match.group(1))
+        if item_id not in SHOP_ITEMS:
+            reply = f"商品番号 {item_id} は存在しないよ！ショップにある番号（1〜6）を選んでね。"
+            reply_note(reply, "❓")
+            return
+            
+        item = SHOP_ITEMS[item_id]
+        sbc_bal = user_state["balance_sbc"]
+        
+        if sbc_bal < item["cost"]:
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーが {item['name']}（価格: {item['cost']} $SBC）を購入しようとしましたが、残高が足りませんでした。"
+                + f"\n・必要額: {item['cost']} $SBC"
+                + f"\n・ユーザー残高: {sbc_bal:.2f} $SBC"
+                + f"\n【指示】$SBCが足りなくて購入できないことを、キャラクターらしくツンツンと、あるいは不満げに伝えてください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+buy (残高不足)")
+            if not reply:
+                reply = f"残高が足りないよ！ {item['name']} を買うには {item['cost']} $SBC 必要だけど、今は {sbc_bal:.2f} $SBC しかないよ。"
+            reply_note(reply, "❌")
+            return
+            
+        user_state["balance_sbc"] = round(sbc_bal - item["cost"], 2)
+        user_state["inventory"].append(item["name"])
+        save_economy(econ_data)
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーが {item['name']} を {item['cost']} $SBC で購入しました。"
+            + f"\n・購入アイテム: {item['name']}"
+            + f"\n・消費額: {item['cost']} $SBC"
+            + f"\n・現在の残高: {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n【指示】アイテムの購入が完了したことを、キャラクターらしく嬉しそうに、あるいはツンツンと報告してください。300文字以内で、メンションは含めないでください。"
+        )
+        reply = generate_llm_reply(instr, f"+buy (購入成功)")
+        if not reply:
+            reply = f"購入成功！ {item['name']} を {item['cost']} $SBC で購入したよ。残高は {user_state['balance_sbc']:.2f} $SBC だよ。ありがとう！"
+        reply_note(reply, "🎁")
+        return
+
+    elif is_cs:
+        match = re.search(r'(\d+(?:\.\d+)?)\s*\+CS', note_text)
+        if not match:
+            match = re.search(r'\+CS\s*(\d+(?:\.\d+)?)', note_text)
+            
+        if not match:
+            amount_cbc = user_state["balance_cbc"]
+        else:
+            amount_cbc = float(match.group(1))
+            
+        if amount_cbc <= 0:
+            reply = "変換するCBCの額が正しくないよ！"
+            reply_note(reply, "❓")
+            return
+            
+        if user_state["balance_cbc"] < amount_cbc:
+            reply = f"CBCが足りないよ！変換しようとした額: {amount_cbc:.2f} CBC / 所持額: {user_state['balance_cbc']:.2f} CBC"
+            reply_note(reply, "❌")
+            return
+            
+        rate = econ_data["rates"]["CBC"]["current"]
+        sbc_gain = round(amount_cbc / rate, 2)
+        
+        user_state["balance_cbc"] = round(user_state["balance_cbc"] - amount_cbc, 2)
+        user_state["balance_sbc"] = round(user_state["balance_sbc"] + sbc_gain, 2)
+        save_economy(econ_data)
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーがCBCを$SBCに両替（+CS）しました。"
+            + f"\n・両替額: {amount_cbc:.2f} CBC"
+            + f"\n・獲得額: {sbc_gain:.2f} $SBC"
+            + f"\n・適用為替レート: 1 $SBC = {rate:.2f} CBC"
+            + f"\n・現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。現在のレート（{rate:.2f} CBC）が通貨高・通貨安のどちらにあたるか（お得か損か）について触れてください。300文字以内で、メンションは含めないでください。"
+        )
+        reply = generate_llm_reply(instr, "+CS (両替)")
+        if not reply:
+            reply = f"CBCから$SBCへの両替が完了したよ！\n変換額: {amount_cbc:.2f} CBC -> {sbc_gain:.2f} $SBC (レート: 1 $SBC = {rate:.2f} CBC)\n現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_sbc']:.2f} $SBC"
+        reply_note(reply, "💱")
+        return
+
+    elif is_sc:
+        match = re.search(r'(\d+(?:\.\d+)?)\s*\+SC', note_text)
+        if not match:
+            match = re.search(r'\+SC\s*(\d+(?:\.\d+)?)', note_text)
+            
+        if not match:
+            amount_sbc = user_state["balance_sbc"]
+        else:
+            amount_sbc = float(match.group(1))
+            
+        if amount_sbc <= 0:
+            reply = "変換する$SBCの額が正しくないよ！"
+            reply_note(reply, "❓")
+            return
+            
+        if user_state["balance_sbc"] < amount_sbc:
+            reply = f"$SBCが足りないよ！変換しようとした額: {amount_sbc:.2f} $SBC / 所持額: {user_state['balance_sbc']:.2f} $SBC"
+            reply_note(reply, "❌")
+            return
+            
+        rate = econ_data["rates"]["CBC"]["current"]
+        cbc_gain = round(amount_sbc * rate, 2)
+        
+        user_state["balance_sbc"] = round(user_state["balance_sbc"] - amount_sbc, 2)
+        user_state["balance_cbc"] = round(user_state["balance_cbc"] + cbc_gain, 2)
+        save_economy(econ_data)
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーが$SBCをCBCに両替（+SC）しました。"
+            + f"\n・両替額: {amount_sbc:.2f} $SBC"
+            + f"\n・獲得額: {cbc_gain:.2f} CBC"
+            + f"\n・適用為替レート: 1 $SBC = {rate:.2f} CBC"
+            + f"\n・現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。現在のレート（{rate:.2f} CBC）が通貨高・通貨安のどちらにあたるか（お得か損か）について触れてください。300文字以内で、メンションは含めないでください。"
+        )
+        reply = generate_llm_reply(instr, "+SC (両替)")
+        if not reply:
+            reply = f"$SBCからCBCへの両替が完了したよ！\n変換額: {amount_sbc:.2f} $SBC -> {cbc_gain:.2f} CBC (レート: 1 $SBC = {rate:.2f} CBC)\n現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_sbc']:.2f} $SBC"
+        reply_note(reply, "💱")
+        return
+
+    elif is_os:
+        match = re.search(r'(\d+(?:\.\d+)?)\s*\+OS', note_text)
+        if not match:
+            match = re.search(r'\+OS\s*(\d+(?:\.\d+)?)', note_text)
+            
+        if not match:
+            amount_ogc = user_state["balance_ogc"]
+        else:
+            amount_ogc = float(match.group(1))
+            
+        if amount_ogc <= 0:
+            reply = "変換するOGCの額が正しくないよ！"
+            reply_note(reply, "❓")
+            return
+            
+        if user_state["balance_ogc"] < amount_ogc:
+            reply = f"OGCが足りないよ！変換しようとした額: {amount_ogc:.2f} OGC / 所持額: {user_state['balance_ogc']:.2f} OGC"
+            reply_note(reply, "❌")
+            return
+            
+        rate = econ_data["rates"]["OGC"]["current"]
+        sbc_gain = round(amount_ogc / rate, 2)
+        
+        user_state["balance_ogc"] = round(user_state["balance_ogc"] - amount_ogc, 2)
+        user_state["balance_sbc"] = round(user_state["balance_sbc"] + sbc_gain, 2)
+        save_economy(econ_data)
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーがOGCを$SBCに両替（+OS）しました。"
+            + f"\n・両替額: {amount_ogc:.2f} OGC"
+            + f"\n・獲得額: {sbc_gain:.2f} $SBC"
+            + f"\n・適用為替レート: 1 $SBC = {rate:.2f} OGC"
+            + f"\n・現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。現在のレート（{rate:.2f} OGC）が通貨高・通貨安のどちらにあたるか（お得か損か）について触れてください。300文字以内で、メンションは含めないでください。"
+        )
+        reply = generate_llm_reply(instr, "+OS (両替)")
+        if not reply:
+            reply = f"OGCから$SBCへの両替が完了したよ！\n変換額: {amount_ogc:.2f} OGC -> {sbc_gain:.2f} $SBC (レート: 1 $SBC = {rate:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_sbc']:.2f} $SBC"
+        reply_note(reply, "💱")
+        return
+
+    elif is_so:
+        match = re.search(r'(\d+(?:\.\d+)?)\s*\+SO', note_text)
+        if not match:
+            match = re.search(r'\+SO\s*(\d+(?:\.\d+)?)', note_text)
+            
+        if not match:
+            amount_sbc = user_state["balance_sbc"]
+        else:
+            amount_sbc = float(match.group(1))
+            
+        if amount_sbc <= 0:
+            reply = "変換する$SBCの額が正しくないよ！"
+            reply_note(reply, "❓")
+            return
+            
+        if user_state["balance_sbc"] < amount_sbc:
+            reply = f"$SBCが足りないよ！変換しようとした額: {amount_sbc:.2f} $SBC / 所持額: {user_state['balance_sbc']:.2f} $SBC"
+            reply_note(reply, "❌")
+            return
+            
+        rate = econ_data["rates"]["OGC"]["current"]
+        ogc_gain = round(amount_sbc * rate, 2)
+        
+        user_state["balance_sbc"] = round(user_state["balance_sbc"] - amount_sbc, 2)
+        user_state["balance_ogc"] = round(user_state["balance_ogc"] + ogc_gain, 2)
+        save_economy(econ_data)
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーが$SBCをOGCに両替（+SO）しました。"
+            + f"\n・両替額: {amount_sbc:.2f} $SBC"
+            + f"\n・獲得額: {ogc_gain:.2f} OGC"
+            + f"\n・適用為替レート: 1 $SBC = {rate:.2f} OGC"
+            + f"\n・現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。現在のレート（{rate:.2f} OGC）が通貨高・通貨安のどちらにあたるか（お得か損か）について触れてください。300文字以内で、メンションは含めないでください。"
+        )
+        reply = generate_llm_reply(instr, "+SO (両替)")
+        if not reply:
+            reply = f"$SBCからOGCへの両替が完了したよ！\n変換額: {amount_sbc:.2f} $SBC -> {ogc_gain:.2f} OGC (レート: 1 $SBC = {rate:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_sbc']:.2f} $SBC"
+        reply_note(reply, "💱")
+        return
+
+    elif is_oc:
+        match = re.search(r'(\d+(?:\.\d+)?)\s*\+OC', note_text)
+        if not match:
+            match = re.search(r'\+OC\s*(\d+(?:\.\d+)?)', note_text)
+            
+        if not match:
+            amount_ogc = user_state["balance_ogc"]
+        else:
+            amount_ogc = float(match.group(1))
+            
+        if amount_ogc <= 0:
+            reply = "変換するOGCの額が正しくないよ！"
+            reply_note(reply, "❓")
+            return
+            
+        if user_state["balance_ogc"] < amount_ogc:
+            reply = f"OGCが足りないよ！変換しようとした額: {amount_ogc:.2f} OGC / 所持額: {user_state['balance_ogc']:.2f} OGC"
+            reply_note(reply, "❌")
+            return
+            
+        rate_ogc = econ_data["rates"]["OGC"]["current"]
+        rate_cbc = econ_data["rates"]["CBC"]["current"]
+        sbc_val = amount_ogc / rate_ogc
+        cbc_gain = round(sbc_val * rate_cbc, 2)
+        
+        user_state["balance_ogc"] = round(user_state["balance_ogc"] - amount_ogc, 2)
+        user_state["balance_cbc"] = round(user_state["balance_cbc"] + cbc_gain, 2)
+        save_economy(econ_data)
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーがOGCをCBCに両替（+OC）しました。"
+            + f"\n・両替額: {amount_ogc:.2f} OGC"
+            + f"\n・獲得額: {cbc_gain:.2f} CBC"
+            + f"\n・適用為替レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC"
+            + f"\n・現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_cbc']:.2f} CBC"
+            + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。それぞれの通貨のレートやお得感について触れてください。300文字以内で、メンションは含めないでください。"
+        )
+        reply = generate_llm_reply(instr, "+OC (両替)")
+        if not reply:
+            reply = f"OGCからCBCへの両替が完了したよ！\n変換額: {amount_ogc:.2f} OGC -> {cbc_gain:.2f} CBC (レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_cbc']:.2f} CBC"
+        reply_note(reply, "💱")
+        return
+
+    elif is_co:
+        match = re.search(r'(\d+(?:\.\d+)?)\s*\+CO', note_text)
+        if not match:
+            match = re.search(r'\+CO\s*(\d+(?:\.\d+)?)', note_text)
+            
+        if not match:
+            amount_cbc = user_state["balance_cbc"]
+        else:
+            amount_cbc = float(match.group(1))
+            
+        if amount_cbc <= 0:
+            reply = "変換するCBCの額が正しくないよ！"
+            reply_note(reply, "❓")
+            return
+            
+        if user_state["balance_cbc"] < amount_cbc:
+            reply = f"CBCが足りないよ！変換しようとした額: {amount_cbc:.2f} CBC / 所持額: {user_state['balance_cbc']:.2f} CBC"
+            reply_note(reply, "❌")
+            return
+            
+        rate_ogc = econ_data["rates"]["OGC"]["current"]
+        rate_cbc = econ_data["rates"]["CBC"]["current"]
+        sbc_val = amount_cbc / rate_cbc
+        ogc_gain = round(sbc_val * rate_ogc, 2)
+        
+        user_state["balance_cbc"] = round(user_state["balance_cbc"] - amount_cbc, 2)
+        user_state["balance_ogc"] = round(user_state["balance_ogc"] + ogc_gain, 2)
+        save_economy(econ_data)
+        
+        instr = (
+            system_instruction
+            + f"\n\n【状況】ユーザーがCBCをOGCに両替（+CO）しました。"
+            + f"\n・両替額: {amount_cbc:.2f} CBC"
+            + f"\n・獲得額: {ogc_gain:.2f} OGC"
+            + f"\n・適用為替レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC"
+            + f"\n・現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_ogc']:.2f} OGC"
+            + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。それぞれの通貨のレートやお得感について触れてください。300文字以内で、メンションは含めないでください。"
+        )
+        reply = generate_llm_reply(instr, "+CO (両替)")
+        if not reply:
+            reply = f"CBCからOGCへの両替が完了したよ！\n変換額: {amount_cbc:.2f} CBC -> {ogc_gain:.2f} OGC (レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC)\n現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_ogc']:.2f} OGC"
+        reply_note(reply, "💱")
+        return
 
     # Check for "+C" (Daily Salary)
     if "+C" in note["text"]:
@@ -627,12 +875,7 @@ async def on_note(note):
             if not reply:
                 reply = f"給料日は{cooldown_desc}に1回だよ！前回の給料日からまだ時間が経ってないよ。（次の給料日まであと {remaining_desc}）"
                 
-            mk.notes_create(
-                text=reply,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True
-            )
+            reply_note(reply)
             return
             
         # Payout math
@@ -679,12 +922,7 @@ async def on_note(note):
                 f"現在の貯金: {bot_state['balance_cbc']:.2f} CBC"
             )
             
-        mk.notes_create(
-            text=reply,
-            reply_id=note["id"],
-            visibility=NoteVisibility.HOME,
-            no_extract_mentions=True
-        )
+        reply_note(reply)
         return
 
     # Check for "+D" (Exchange Rates Inquiry)
@@ -730,12 +968,7 @@ async def on_note(note):
                 f"※ 為替レートは1分ごとに自動変動するよ！"
             )
             
-        mk.notes_create(
-            text=reply,
-            reply_id=note["id"],
-            visibility=NoteVisibility.HOME,
-            no_extract_mentions=True
-        )
+        reply_note(reply)
         return
 
     # Check for "+P" (Shop Purchases)
@@ -759,12 +992,7 @@ async def on_note(note):
             if not reply:
                 reply = "金額（例: 10$ +P）が正しく読み取れなかったよ。確認してみてね！"
                 
-            mk.notes_create(
-                text=reply,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True
-            )
+            reply_note(reply)
             return
             
         amount_sbc = int(match.group(1))
@@ -791,12 +1019,7 @@ async def on_note(note):
             if not reply:
                 reply = f"貯金が足りないよ！ {amount_sbc} $SBC を支払うには {cost_cbc:.2f} CBC 必要だけど、今の貯金は {bot_state['balance_cbc']:.2f} CBC しかないよ…"
                 
-            mk.notes_create(
-                text=reply,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True
-            )
+            reply_note(reply)
             return
             
         if amount_sbc == 10:
@@ -825,12 +1048,7 @@ async def on_note(note):
             if not reply:
                 reply = f"わーい！10 $SBC ({cost_cbc:.2f} CBC) でお休みをもらうね！これからの2時間は話しかけられてもお返事しないよ。ゆっくりお昼寝するぞ〜！"
                 
-            mk.notes_create(
-                text=reply,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True
-            )
+            reply_note(reply)
             return
         elif amount_sbc == 50:
             bot_state["items"].append("高効率冷却ファン")
@@ -856,12 +1074,7 @@ async def on_note(note):
             if not reply:
                 reply = f"わぁ！50 $SBC ({cost_cbc:.2f} CBC) で高効率冷却ファンを買ってくれたの？これで私のAllwinner A527もサーマルスロットリングを起こさずにサクサク計算できるよ！ありがとう！"
                 
-            mk.notes_create(
-                text=reply,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True
-            )
+            reply_note(reply)
             return
         elif amount_sbc == 100:
             bot_state["items"].append("高速NVMe M.2 SSD 1TB")
@@ -885,12 +1098,7 @@ async def on_note(note):
             if not reply:
                 reply = f"わぁーい！100 $SBC ({cost_cbc:.2f} CBC) で高速NVMe M.2 SSD 1TBを買ってもらったよ！これでストレージが128GBから1TBに大幅アップグレードだね！MisskeyサーバーのDB書き込みも爆速になりそう！ありがとう！"
                 
-            mk.notes_create(
-                text=reply,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True
-            )
+            reply_note(reply)
             return
         elif amount_sbc >= 1000:
             bot_state["virtual_pc_count"] += 1
@@ -921,12 +1129,7 @@ async def on_note(note):
                     f"現在持っている仮想PC: {bot_state['virtual_pc_count']}台"
                 )
                 
-            mk.notes_create(
-                text=reply,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True
-            )
+            reply_note(reply)
             return
         else:
             try:
@@ -943,12 +1146,7 @@ async def on_note(note):
             if not reply:
                 reply = f"{amount_sbc} $SBC に対応するアイテムやアクションはまだないみたい。10$、50$、100$、または1000$以上を指定してね！"
                 
-            mk.notes_create(
-                text=reply,
-                reply_id=note["id"],
-                visibility=NoteVisibility.HOME,
-                no_extract_mentions=True
-            )
+            reply_note(reply)
             return
 
     # Check for "+M" (System Status Report)
@@ -970,12 +1168,7 @@ async def on_note(note):
         if not reply:
             reply = f"システム情報の取得中に問題が発生しました…ごめんね。"
             
-        mk.notes_create(
-            text=reply,
-            reply_id=note["id"],
-            visibility=NoteVisibility.HOME,
-            no_extract_mentions=True,
-        )
+        reply_note(reply)
         return
 
     # Default to General talk logic (Any text mentioning the bot)
@@ -1007,18 +1200,9 @@ async def on_note(note):
         if not reply:
             reply = "予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん..."
             
-        mk.notes_create(
-            text=reply,
-            reply_id=note["id"],
-            visibility=NoteVisibility.HOME,
-            no_extract_mentions=True,
-        )
+        reply_note(reply)
     except Exception as e:
-        mk.notes_create(
-            "予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん...",
-            visibility=NoteVisibility.HOME,
-            no_extract_mentions=True,
-        )
+        reply_note("予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん...")
         print(e)
 
 
