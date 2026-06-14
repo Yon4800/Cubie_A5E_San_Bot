@@ -160,6 +160,17 @@ def save_economy(data):
                 print(f"Failed to save remote economy state: {res.status_code}")
         except Exception as e:
             print(f"Error saving remote economy state: {e}")
+        
+        # Save a local backup copy so Mockoon can follow it on startup
+        try:
+            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            local_path = os.path.abspath(os.path.join(parent_dir, "shared_economy.json"))
+            with tempfile.NamedTemporaryFile('w', dir=parent_dir or ".", delete=False, encoding='utf-8') as tf:
+                json.dump(data, tf, indent=2, ensure_ascii=False)
+                temp_name = tf.name
+            os.replace(temp_name, local_path)
+        except Exception as e:
+            print(f"Error saving local backup economy state: {e}")
     else:
         dir_name = os.path.dirname(filepath)
         if dir_name and not os.path.exists(dir_name):
@@ -171,6 +182,7 @@ def save_economy(data):
             os.replace(temp_name, filepath)
         except Exception as e:
             print(f"Error saving economy state: {e}")
+
 
 def get_user_state(data, user_id, username=None, display_name=None):
     if "users" not in data:

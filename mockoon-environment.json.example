@@ -17,10 +17,10 @@
       "responses": [
         {
           "uuid": "f2c83c27-31b2-4d9f-93d3-8bf64f0b6e7a",
-          "body": "{{#if (getGlobalVar 'economy')}}{{{stringify (getGlobalVar 'economy')}}}{{else}}{\n  \"salary_cooldown_seconds\": 86400,\n  \"rate_update_interval_seconds\": 60,\n  \"rates\": {\n    \"CBC\": {\n      \"current\": 105.98,\n      \"previous\": 105.65\n    },\n    \"OGC\": {\n      \"current\": 99.15,\n      \"previous\": 98.37\n    }\n  },\n  \"last_rate_update\": \"2026-06-14T14:38:51.969244\",\n  \"bots\": {\n    \"Cubie_A5E_San\": {\n      \"balance_cbc\": 25585.11,\n      \"last_salary_paid_time\": \"2026-06-14T13:11:09.756974\",\n      \"break_until\": null,\n      \"virtual_pc_count\": 0,\n      \"items\": []\n    }\n  },\n  \"users\": {\n    \"ak9639fbd1ia0003\": {\n      \"balance_sbc\": 0,\n      \"balance_cbc\": 12381,\n      \"balance_ogc\": 100,\n      \"inventory\": [],\n      \"username\": \"Yon4800\",\n      \"display_name\": \"よんぱちさんーーーーーーーーーーーーー:neko_tired2:\"\n    }\n  }\n}{{/if}}",
+          "body": "{{{stringify (getGlobalVar 'economy')}}}",
           "latency": 0,
           "statusCode": 200,
-          "label": "",
+          "label": "From memory",
           "headers": [
             {
               "key": "Content-Type",
@@ -29,6 +29,39 @@
           ],
           "filePath": "",
           "sendFileAsBody": false,
+          "rules": [
+            {
+              "target": "global_var",
+              "property": "",
+              "modifier": "economy",
+              "invert": true,
+              "operator": "null",
+              "value": ""
+            }
+          ],
+          "rulesOperator": "OR",
+          "bodyType": "INLINE",
+          "databucketID": "",
+          "disableTemplating": false,
+          "fallbackTo404": false,
+          "default": false,
+          "crudKey": "id",
+          "callbacks": []
+        },
+        {
+          "uuid": "f2c83c27-31b2-4d9f-93d3-8bf64f0b6e7b",
+          "body": "",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "From local file",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "filePath": "../shared_economy.json",
+          "sendFileAsBody": true,
           "rules": [],
           "rulesOperator": "OR",
           "bodyType": "INLINE",
