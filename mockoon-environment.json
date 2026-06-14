@@ -15,7 +15,7 @@
       "responses": [
         {
           "uuid": "resp-get-economy",
-          "body": "{{#if (getGlobalVar 'economy')}}{{{stringify (getGlobalVar 'economy')}}}{{else}}{\n  \"salary_cooldown_seconds\": 86400,\n  \"rate_update_interval_seconds\": 60,\n  \"rates\": {\n    \"CBC\": {\"current\": 100.0, \"previous\": 100.0},\n    \"OGC\": {\"current\": 100.0, \"previous\": 100.0}\n  },\n  \"last_rate_update\": \"2026-06-14T13:51:14\",\n  \"bots\": {},\n  \"users\": {}\n}{{/if}}",
+          "body": "{{#if (getGlobalVar 'economy')}}{{{stringify (getGlobalVar 'economy')}}}{{else}}{\n  \"salary_cooldown_seconds\": 86400,\n  \"rate_update_interval_seconds\": 60,\n  \"rates\": {\n    \"CBC\": {\n      \"current\": 105.98,\n      \"previous\": 105.65\n    },\n    \"OGC\": {\n      \"current\": 99.15,\n      \"previous\": 98.37\n    }\n  },\n  \"last_rate_update\": \"2026-06-14T14:38:51.969244\",\n  \"bots\": {\n    \"Cubie_A5E_San\": {\n      \"balance_cbc\": 25585.11,\n      \"last_salary_paid_time\": \"2026-06-14T13:11:09.756974\",\n      \"break_until\": null,\n      \"virtual_pc_count\": 0,\n      \"items\": []\n    }\n  },\n  \"users\": {\n    \"ak9639fbd1ia0003\": {\n      \"balance_sbc\": 0,\n      \"balance_cbc\": 12381,\n      \"balance_ogc\": 100,\n      \"inventory\": [],\n      \"username\": \"Yon4800\",\n      \"display_name\": \"よんぱちさんーーーーーーーーーーーーー:neko_tired2:\"\n    }\n  }\n}{{/if}}",
           "latency": 0,
           "statusCode": 200,
           "label": "",
