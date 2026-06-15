@@ -89,6 +89,91 @@ def get_rate_status_description(rate: float) -> str:
     else:
         return "基準値（1 $SBC = 100.00 CBC/OGC であり、ちょうど基準値です）"
 
+def parse_exchange_amount(note_text: str, cmd: str, balance: float, rate_cbc: float, rate_ogc: float) -> float:
+    escaped_cmd = re.escape(cmd)
+    
+    # 1. Percentage (%)
+    # E.g. "50% +CS" or "+CS 50%"
+    m = re.search(r'(\d+(?:\.\d+)?)%\s*' + escaped_cmd, note_text, re.IGNORECASE)
+    if not m:
+        m = re.search(escaped_cmd + r'\s*(\d+(?:\.\d+)?)%', note_text, re.IGNORECASE)
+    if m:
+        pct = float(m.group(1)) / 100.0
+        return round(balance * pct, 4)
+
+    # 2. Keywords (半分/half, 全部/全額/all)
+    # E.g. "半分 +CS" or "+CS half"
+    m_half = re.search(r'(半分|half)\s*' + escaped_cmd, note_text, re.IGNORECASE) or \
+             re.search(escaped_cmd + r'\s*(半分|half)', note_text, re.IGNORECASE)
+    if m_half:
+        return round(balance * 0.5, 4)
+
+    m_all = re.search(r'(全部|全額|all)\s*' + escaped_cmd, note_text, re.IGNORECASE) or \
+            re.search(escaped_cmd + r'\s*(全部|全額|all)', note_text, re.IGNORECASE)
+    if m_all:
+        return balance
+
+    # Define unit patterns
+    # Destination currency units
+    dest_units = None
+    if cmd in ["+CS", "+OS"]:
+        dest_units = r'(?:\$|\$SBC|SBC|ドル)'
+    elif cmd in ["+SC", "+OC"]:
+        dest_units = r'(?:CBC)'
+    elif cmd in ["+SO", "+CO"]:
+        dest_units = r'(?:OGC)'
+
+    # Source currency units
+    source_units = None
+    if cmd in ["+CS", "+CO"]:
+        source_units = r'(?:CBC)'
+    elif cmd in ["+SC", "+SO"]:
+        source_units = r'(?:\$|\$SBC|SBC|ドル)'
+    elif cmd in ["+OS", "+OC"]:
+        source_units = r'(?:OGC)'
+
+    # 3. Destination Currency Target Amount
+    # E.g. "1.5$ +CS" or "+CS 1.5$"
+    if dest_units:
+        m = re.search(r'(\d+(?:\.\d+)?)\s*' + dest_units + r'\s*' + escaped_cmd, note_text, re.IGNORECASE)
+        if not m:
+            m = re.search(escaped_cmd + r'\s*(\d+(?:\.\d+)?)\s*' + dest_units, note_text, re.IGNORECASE)
+        if m:
+            dest_amt = float(m.group(1))
+            # Convert destination amount to source amount
+            if cmd == "+CS":    # CBC -> SBC
+                return round(dest_amt * rate_cbc, 4)
+            elif cmd == "+SC":  # SBC -> CBC
+                return round(dest_amt / rate_cbc, 4)
+            elif cmd == "+OS":  # OGC -> SBC
+                return round(dest_amt * rate_ogc, 4)
+            elif cmd == "+SO":  # SBC -> OGC
+                return round(dest_amt / rate_ogc, 4)
+            elif cmd == "+OC":  # OGC -> CBC (OGC -> SBC -> CBC)
+                return round(dest_amt * rate_ogc / rate_cbc, 4)
+            elif cmd == "+CO":  # CBC -> OGC (CBC -> SBC -> OGC)
+                return round(dest_amt * rate_cbc / rate_ogc, 4)
+
+    # 4. Source Currency Specified Amount
+    # E.g. "10CBC +CS" or "+CS 10CBC"
+    if source_units:
+        m = re.search(r'(\d+(?:\.\d+)?)\s*' + source_units + r'\s*' + escaped_cmd, note_text, re.IGNORECASE)
+        if not m:
+            m = re.search(escaped_cmd + r'\s*(\d+(?:\.\d+)?)\s*' + source_units, note_text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+
+    # 5. Plain Numeric Amount
+    # E.g. "10 +CS" or "+CS 10"
+    m = re.search(r'(\d+(?:\.\d+)?)\s*' + escaped_cmd, note_text, re.IGNORECASE)
+    if not m:
+        m = re.search(escaped_cmd + r'\s*(\d+(?:\.\d+)?)', note_text, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+
+    # 6. Default (No numbers specified) -> Convert entire balance
+    return balance
+
 def generate_llm_reply(system_instruction: str, user_prompt: str, history=None) -> str:
     contents = []
     if history:
@@ -428,7 +513,7 @@ async def on_note(note):
 
     # Earn CBC from talking to Cubie-san
     user_state = get_user_state(econ_data, user_id, username, user_name)
-    user_state["balance_cbc"] = round(user_state["balance_cbc"] + 100.0, 2)
+    user_state["balance_cbc"] = round(user_state["balance_cbc"] + 100.0, 4)
     save_economy(econ_data)
 
     def reply_note(text, reaction=None):
@@ -464,9 +549,9 @@ async def on_note(note):
     
     coin_info = rate_info + (
         f"・話しかけているユーザー（{user_name}）の資産残高:\n"
-        f"  CBC残高: {user_cbc:.2f} CBC\n"
-        f"  OGC残高: {user_ogc:.2f} OGC\n"
-        f"  $SBC残高: {user_sbc:.2f} $SBC\n"
+        f"  CBC残高: {user_cbc:.4f} CBC\n"
+        f"  OGC残高: {user_ogc:.4f} OGC\n"
+        f"  $SBC残高: {user_sbc:.4f} $SBC\n"
     )
 
     current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
@@ -514,9 +599,9 @@ async def on_note(note):
         instr = (
             system_instruction
             + f"\n\n【状況】ユーザーから自身のウォレット残高確認（+W / +wallet）の要求がありました。"
-            + f"\n・$SBC残高: {sbc:.2f} $SBC"
-            + f"\n・CBC残高: {cbc:.2f} CBC"
-            + f"\n・OGC残高: {ogc:.2f} OGC"
+            + f"\n・$SBC残高: {sbc:.4f} $SBC"
+            + f"\n・CBC残高: {cbc:.4f} CBC"
+            + f"\n・OGC残高: {ogc:.4f} OGC"
             + f"\n・所持アイテム: {inv_str}"
             + f"\n【指示】現在のユーザーの資産とアイテム情報を、あなたのキャラクターらしく報告してください。現在の為替レートについても少し触れ、通貨高や通貨安について言及してください。300文字以内で、メンションは含めないでください。"
         )
@@ -524,9 +609,9 @@ async def on_note(note):
         if not reply:
             reply = (
                 f"あなたのウォレット情報だよ！\n"
-                f"・$SBC: {sbc:.2f} $SBC\n"
-                f"・CBC: {cbc:.2f} CBC\n"
-                f"・OGC: {ogc:.2f} OGC\n"
+                f"・$SBC: {sbc:.4f} $SBC\n"
+                f"・CBC: {cbc:.4f} CBC\n"
+                f"・OGC: {ogc:.4f} OGC\n"
                 f"・所持アイテム: {inv_str}"
             )
         reply_note(reply, "👛")
@@ -559,13 +644,27 @@ async def on_note(note):
             match = re.search(r'(\d+)\s*\+buy', note_text, re.IGNORECASE)
             
         if not match:
-            reply = "商品番号がうまく読み取れなかったよ。例えば「+buy 1」のように商品番号を指定してね！"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがアイテムショップでの購入（+buy）を試みましたが、商品番号が正しく読み取れませんでした。"
+                + f"\n【指示】商品番号を正しく指定するよう（例:「+buy 1」のように入力してね、など）、あなたのキャラクターらしく指摘してください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+buy (商品番号解析エラー)")
+            if not reply:
+                reply = "商品番号がうまく読み取れなかったよ。例えば「+buy 1」のように商品番号を指定してね！"
             reply_note(reply, "❓")
             return
             
         item_id = int(match.group(1))
         if item_id not in SHOP_ITEMS:
-            reply = f"商品番号 {item_id} は存在しないよ！ショップにある番号（1〜6）を選んでね。"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがアイテムショップで購入（+buy）しようとしましたが、指定された商品番号 {item_id} は存在しませんでした。"
+                + f"\n【指示】指定された商品番号が存在しないことと、ショップにある正しい番号（1〜6）を選ぶように、あなたのキャラクターらしく指摘してください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+buy (存在しない商品番号)")
+            if not reply:
+                reply = f"商品番号 {item_id} は存在しないよ！ショップにある番号（1〜6）を選んでね。"
             reply_note(reply, "❓")
             return
             
@@ -577,16 +676,16 @@ async def on_note(note):
                 system_instruction
                 + f"\n\n【状況】ユーザーが {item['name']}（価格: {item['cost']} $SBC）を購入しようとしましたが、残高が足りませんでした。"
                 + f"\n・必要額: {item['cost']} $SBC"
-                + f"\n・ユーザー残高: {sbc_bal:.2f} $SBC"
+                + f"\n・ユーザー残高: {sbc_bal:.4f} $SBC"
                 + f"\n【指示】$SBCが足りなくて購入できないことを、キャラクターらしくツンツンと、あるいは不満げに伝えてください。300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "+buy (残高不足)")
             if not reply:
-                reply = f"残高が足りないよ！ {item['name']} を買うには {item['cost']} $SBC 必要だけど、今は {sbc_bal:.2f} $SBC しかないよ。"
+                reply = f"残高が足りないよ！ {item['name']} を買うには {item['cost']} $SBC 必要だけど、今は {sbc_bal:.4f} $SBC しかないよ。"
             reply_note(reply, "❌")
             return
             
-        user_state["balance_sbc"] = round(sbc_bal - item["cost"], 2)
+        user_state["balance_sbc"] = round(sbc_bal - item["cost"], 4)
         user_state["inventory"].append(item["name"])
         save_economy(econ_data)
         
@@ -595,268 +694,326 @@ async def on_note(note):
             + f"\n\n【状況】ユーザーが {item['name']} を {item['cost']} $SBC で購入しました。"
             + f"\n・購入アイテム: {item['name']}"
             + f"\n・消費額: {item['cost']} $SBC"
-            + f"\n・現在の残高: {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n・現在の残高: {user_state['balance_sbc']:.4f} $SBC"
             + f"\n【指示】アイテムの購入が完了したことを、キャラクターらしく嬉しそうに、あるいはツンツンと報告してください。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, f"+buy (購入成功)")
         if not reply:
-            reply = f"購入成功！ {item['name']} を {item['cost']} $SBC で購入したよ。残高は {user_state['balance_sbc']:.2f} $SBC だよ。ありがとう！"
+            reply = f"購入成功！ {item['name']} を {item['cost']} $SBC で購入したよ。残高は {user_state['balance_sbc']:.4f} $SBC だよ。ありがとう！"
         reply_note(reply, "🎁")
         return
 
     elif is_cs:
-        match = re.search(r'(\d+(?:\.\d+)?)\s*\+CS', note_text)
-        if not match:
-            match = re.search(r'\+CS\s*(\d+(?:\.\d+)?)', note_text)
-            
-        if not match:
-            amount_cbc = user_state["balance_cbc"]
-        else:
-            amount_cbc = float(match.group(1))
+        rate = econ_data["rates"]["CBC"]["current"]
+        rate_ogc = econ_data["rates"]["OGC"]["current"]
+        amount_cbc = parse_exchange_amount(note_text, "+CS", user_state["balance_cbc"], rate, rate_ogc)
             
         if amount_cbc <= 0:
-            reply = "変換するCBCの額が正しくないよ！"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがCBCから$SBCへの両替（+CS）を試みましたが、金額の指定が正しくありませんでした。"
+                + f"\n【指示】変換する額が正しくないことを、あなたのキャラクターらしく指摘してください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+CS (両替額エラー)")
+            if not reply:
+                reply = "変換するCBCの額が正しくないよ！"
             reply_note(reply, "❓")
             return
             
         if user_state["balance_cbc"] < amount_cbc:
-            reply = f"CBCが足りないよ！変換しようとした額: {amount_cbc:.2f} CBC / 所持額: {user_state['balance_cbc']:.2f} CBC"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがCBCから$SBCへの両替（+CS）を試みましたが、CBC残高が足りませんでした。"
+                + f"\n・変換しようとした額: {amount_cbc:.4f} CBC"
+                + f"\n・現在の所持額: {user_state['balance_cbc']:.4f} CBC"
+                + f"\n【指示】CBCが足りないため両替できないことを、キャラクターらしくツンツンと、あるいは呆れた様子で伝えてください。変換しようとした額（{amount_cbc:.4f} CBC）と現在の所持額（{user_state['balance_cbc']:.4f} CBC）を含めてください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+CS (残高不足)")
+            if not reply:
+                reply = f"CBCが足りないよ！変換しようとした額: {amount_cbc:.4f} CBC / 所持額: {user_state['balance_cbc']:.4f} CBC"
             reply_note(reply, "❌")
             return
             
-        rate = econ_data["rates"]["CBC"]["current"]
-        sbc_gain = round(amount_cbc / rate, 2)
+        sbc_gain = round(amount_cbc / rate, 4)
         
-        user_state["balance_cbc"] = round(user_state["balance_cbc"] - amount_cbc, 2)
-        user_state["balance_sbc"] = round(user_state["balance_sbc"] + sbc_gain, 2)
+        user_state["balance_cbc"] = round(user_state["balance_cbc"] - amount_cbc, 4)
+        user_state["balance_sbc"] = round(user_state["balance_sbc"] + sbc_gain, 4)
         save_economy(econ_data)
         
         instr = (
             system_instruction
             + f"\n\n【状況】ユーザーがCBCを$SBCに両替（+CS）しました。"
-            + f"\n・両替額: {amount_cbc:.2f} CBC"
-            + f"\n・獲得額: {sbc_gain:.2f} $SBC"
+            + f"\n・両替額: {amount_cbc:.4f} CBC"
+            + f"\n・獲得額: {sbc_gain:.4f} $SBC"
             + f"\n・適用為替レート: 1 $SBC = {rate:.2f} CBC"
-            + f"\n・現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n・現在の残高: {user_state['balance_cbc']:.4f} CBC / {user_state['balance_sbc']:.4f} $SBC"
             + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。現在のレート（{rate:.2f} CBC）が通貨高・通貨安のどちらにあたるか（お得か損か）について触れてください。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+CS (両替)")
         if not reply:
-            reply = f"CBCから$SBCへの両替が完了したよ！\n変換額: {amount_cbc:.2f} CBC -> {sbc_gain:.2f} $SBC (レート: 1 $SBC = {rate:.2f} CBC)\n現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_sbc']:.2f} $SBC"
+            reply = f"CBCから$SBCへの両替が完了したよ！\n変換額: {amount_cbc:.4f} CBC -> {sbc_gain:.4f} $SBC (レート: 1 $SBC = {rate:.2f} CBC)\n現在の残高: {user_state['balance_cbc']:.4f} CBC / {user_state['balance_sbc']:.4f} $SBC"
         reply_note(reply, "💱")
         return
 
     elif is_sc:
-        match = re.search(r'(\d+(?:\.\d+)?)\s*\+SC', note_text)
-        if not match:
-            match = re.search(r'\+SC\s*(\d+(?:\.\d+)?)', note_text)
-            
-        if not match:
-            amount_sbc = user_state["balance_sbc"]
-        else:
-            amount_sbc = float(match.group(1))
+        rate = econ_data["rates"]["CBC"]["current"]
+        rate_ogc = econ_data["rates"]["OGC"]["current"]
+        amount_sbc = parse_exchange_amount(note_text, "+SC", user_state["balance_sbc"], rate, rate_ogc)
             
         if amount_sbc <= 0:
-            reply = "変換する$SBCの額が正しくないよ！"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーが$SBCからCBCへの両替（+SC）を試みましたが、金額の指定が正しくありませんでした。"
+                + f"\n【指示】変換する額が正しくないことを、あなたのキャラクターらしく指摘してください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+SC (両替額エラー)")
+            if not reply:
+                reply = "変換する$SBCの額が正しくないよ！"
             reply_note(reply, "❓")
             return
             
         if user_state["balance_sbc"] < amount_sbc:
-            reply = f"$SBCが足りないよ！変換しようとした額: {amount_sbc:.2f} $SBC / 所持額: {user_state['balance_sbc']:.2f} $SBC"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーが$SBCからCBCへの両替（+SC）を試みましたが、$SBC残高が足りませんでした。"
+                + f"\n・変換しようとした額: {amount_sbc:.4f} $SBC"
+                + f"\n・現在の所持額: {user_state['balance_sbc']:.4f} $SBC"
+                + f"\n【指示】$SBCが足りないため両替できないことを、キャラクターらしくツンツンと、あるいは呆れた様子で伝えてください。変換しようとした額（{amount_sbc:.4f} $SBC）と現在の所持額（{user_state['balance_sbc']:.4f} $SBC）を含めてください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+SC (残高不足)")
+            if not reply:
+                reply = f"$SBCが足りないよ！変換しようとした額: {amount_sbc:.4f} $SBC / 所持額: {user_state['balance_sbc']:.4f} $SBC"
             reply_note(reply, "❌")
             return
             
-        rate = econ_data["rates"]["CBC"]["current"]
-        cbc_gain = round(amount_sbc * rate, 2)
+        cbc_gain = round(amount_sbc * rate, 4)
         
-        user_state["balance_sbc"] = round(user_state["balance_sbc"] - amount_sbc, 2)
-        user_state["balance_cbc"] = round(user_state["balance_cbc"] + cbc_gain, 2)
+        user_state["balance_sbc"] = round(user_state["balance_sbc"] - amount_sbc, 4)
+        user_state["balance_cbc"] = round(user_state["balance_cbc"] + cbc_gain, 4)
         save_economy(econ_data)
         
         instr = (
             system_instruction
             + f"\n\n【状況】ユーザーが$SBCをCBCに両替（+SC）しました。"
-            + f"\n・両替額: {amount_sbc:.2f} $SBC"
-            + f"\n・獲得額: {cbc_gain:.2f} CBC"
+            + f"\n・両替額: {amount_sbc:.4f} $SBC"
+            + f"\n・獲得額: {cbc_gain:.4f} CBC"
             + f"\n・適用為替レート: 1 $SBC = {rate:.2f} CBC"
-            + f"\n・現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n・現在の残高: {user_state['balance_cbc']:.4f} CBC / {user_state['balance_sbc']:.4f} $SBC"
             + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。現在のレート（{rate:.2f} CBC）が通貨高・通貨安のどちらにあたるか（お得か損か）について触れてください。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+SC (両替)")
         if not reply:
-            reply = f"$SBCからCBCへの両替が完了したよ！\n変換額: {amount_sbc:.2f} $SBC -> {cbc_gain:.2f} CBC (レート: 1 $SBC = {rate:.2f} CBC)\n現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_sbc']:.2f} $SBC"
+            reply = f"$SBCからCBCへの両替が完了したよ！\n変換額: {amount_sbc:.4f} $SBC -> {cbc_gain:.4f} CBC (レート: 1 $SBC = {rate:.2f} CBC)\n現在の残高: {user_state['balance_cbc']:.4f} CBC / {user_state['balance_sbc']:.4f} $SBC"
         reply_note(reply, "💱")
         return
 
     elif is_os:
-        match = re.search(r'(\d+(?:\.\d+)?)\s*\+OS', note_text)
-        if not match:
-            match = re.search(r'\+OS\s*(\d+(?:\.\d+)?)', note_text)
-            
-        if not match:
-            amount_ogc = user_state["balance_ogc"]
-        else:
-            amount_ogc = float(match.group(1))
+        rate = econ_data["rates"]["OGC"]["current"]
+        rate_cbc = econ_data["rates"]["CBC"]["current"]
+        amount_ogc = parse_exchange_amount(note_text, "+OS", user_state["balance_ogc"], rate_cbc, rate)
             
         if amount_ogc <= 0:
-            reply = "変換するOGCの額が正しくないよ！"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがOGCから$SBCへの両替（+OS）を試みましたが、金額の指定が正しくありませんでした。"
+                + f"\n【指示】変換する額が正しくないことを、あなたのキャラクターらしく指摘してください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+OS (両替額エラー)")
+            if not reply:
+                reply = "変換するOGCの額が正しくないよ！"
             reply_note(reply, "❓")
             return
             
         if user_state["balance_ogc"] < amount_ogc:
-            reply = f"OGCが足りないよ！変換しようとした額: {amount_ogc:.2f} OGC / 所持額: {user_state['balance_ogc']:.2f} OGC"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがOGCから$SBCへの両替（+OS）を試みましたが、OGC残高が足りませんでした。"
+                + f"\n・変換しようとした額: {amount_ogc:.4f} OGC"
+                + f"\n・現在の所持額: {user_state['balance_ogc']:.4f} OGC"
+                + f"\n【指示】OGCが足りないため両替できないことを、キャラクターらしくツンツンと、あるいは呆れた様子で伝えてください。変換しようとした額（{amount_ogc:.4f} OGC）と現在の所持額（{user_state['balance_ogc']:.4f} OGC）を含めてください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+OS (残高不足)")
+            if not reply:
+                reply = f"OGCが足りないよ！変換しようとした額: {amount_ogc:.4f} OGC / 所持額: {user_state['balance_ogc']:.4f} OGC"
             reply_note(reply, "❌")
             return
             
-        rate = econ_data["rates"]["OGC"]["current"]
-        sbc_gain = round(amount_ogc / rate, 2)
+        sbc_gain = round(amount_ogc / rate, 4)
         
-        user_state["balance_ogc"] = round(user_state["balance_ogc"] - amount_ogc, 2)
-        user_state["balance_sbc"] = round(user_state["balance_sbc"] + sbc_gain, 2)
+        user_state["balance_ogc"] = round(user_state["balance_ogc"] - amount_ogc, 4)
+        user_state["balance_sbc"] = round(user_state["balance_sbc"] + sbc_gain, 4)
         save_economy(econ_data)
         
         instr = (
             system_instruction
             + f"\n\n【状況】ユーザーがOGCを$SBCに両替（+OS）しました。"
-            + f"\n・両替額: {amount_ogc:.2f} OGC"
-            + f"\n・獲得額: {sbc_gain:.2f} $SBC"
+            + f"\n・両替額: {amount_ogc:.4f} OGC"
+            + f"\n・獲得額: {sbc_gain:.4f} $SBC"
             + f"\n・適用為替レート: 1 $SBC = {rate:.2f} OGC"
-            + f"\n・現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n・現在の残高: {user_state['balance_ogc']:.4f} OGC / {user_state['balance_sbc']:.4f} $SBC"
             + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。現在のレート（{rate:.2f} OGC）が通貨高・通貨安のどちらにあたるか（お得か損か）について触れてください。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+OS (両替)")
         if not reply:
-            reply = f"OGCから$SBCへの両替が完了したよ！\n変換額: {amount_ogc:.2f} OGC -> {sbc_gain:.2f} $SBC (レート: 1 $SBC = {rate:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_sbc']:.2f} $SBC"
+            reply = f"OGCから$SBCへの両替が完了したよ！\n変換額: {amount_ogc:.4f} OGC -> {sbc_gain:.4f} $SBC (レート: 1 $SBC = {rate:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.4f} OGC / {user_state['balance_sbc']:.4f} $SBC"
         reply_note(reply, "💱")
         return
 
     elif is_so:
-        match = re.search(r'(\d+(?:\.\d+)?)\s*\+SO', note_text)
-        if not match:
-            match = re.search(r'\+SO\s*(\d+(?:\.\d+)?)', note_text)
-            
-        if not match:
-            amount_sbc = user_state["balance_sbc"]
-        else:
-            amount_sbc = float(match.group(1))
+        rate = econ_data["rates"]["OGC"]["current"]
+        rate_cbc = econ_data["rates"]["CBC"]["current"]
+        amount_sbc = parse_exchange_amount(note_text, "+SO", user_state["balance_sbc"], rate_cbc, rate)
             
         if amount_sbc <= 0:
-            reply = "変換する$SBCの額が正しくないよ！"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーが$SBCからOGCへの両替（+SO）を試みましたが、金額の指定が正しくありませんでした。"
+                + f"\n【指示】変換する額が正しくないことを、あなたのキャラクターらしく指摘してください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+SO (両替額エラー)")
+            if not reply:
+                reply = "変換する$SBCの額が正しくないよ！"
             reply_note(reply, "❓")
             return
             
         if user_state["balance_sbc"] < amount_sbc:
-            reply = f"$SBCが足りないよ！変換しようとした額: {amount_sbc:.2f} $SBC / 所持額: {user_state['balance_sbc']:.2f} $SBC"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーが$SBCからOGCへの両替（+SO）を試みましたが、$SBC残高が足りませんでした。"
+                + f"\n・変換しようとした額: {amount_sbc:.4f} $SBC"
+                + f"\n・現在の所持額: {user_state['balance_sbc']:.4f} $SBC"
+                + f"\n【指示】$SBCが足りないため両替できないことを、キャラクターらしくツンツンと、あるいは呆れた様子で伝えてください。変換しようとした額（{amount_sbc:.4f} $SBC）と現在の所持額（{user_state['balance_sbc']:.4f} $SBC）を含めてください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+SO (残高不足)")
+            if not reply:
+                reply = f"$SBCが足りないよ！変換しようとした額: {amount_sbc:.4f} $SBC / 所持額: {user_state['balance_sbc']:.4f} $SBC"
             reply_note(reply, "❌")
             return
             
-        rate = econ_data["rates"]["OGC"]["current"]
-        ogc_gain = round(amount_sbc * rate, 2)
+        ogc_gain = round(amount_sbc * rate, 4)
         
-        user_state["balance_sbc"] = round(user_state["balance_sbc"] - amount_sbc, 2)
-        user_state["balance_ogc"] = round(user_state["balance_ogc"] + ogc_gain, 2)
+        user_state["balance_sbc"] = round(user_state["balance_sbc"] - amount_sbc, 4)
+        user_state["balance_ogc"] = round(user_state["balance_ogc"] + ogc_gain, 4)
         save_economy(econ_data)
         
         instr = (
             system_instruction
             + f"\n\n【状況】ユーザーが$SBCをOGCに両替（+SO）しました。"
-            + f"\n・両替額: {amount_sbc:.2f} $SBC"
-            + f"\n・獲得額: {ogc_gain:.2f} OGC"
+            + f"\n・両替額: {amount_sbc:.4f} $SBC"
+            + f"\n・獲得額: {ogc_gain:.4f} OGC"
             + f"\n・適用為替レート: 1 $SBC = {rate:.2f} OGC"
-            + f"\n・現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_sbc']:.2f} $SBC"
+            + f"\n・現在の残高: {user_state['balance_ogc']:.4f} OGC / {user_state['balance_sbc']:.4f} $SBC"
             + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。現在のレート（{rate:.2f} OGC）が通貨高・通貨安のどちらにあたるか（お得か損か）について触れてください。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+SO (両替)")
         if not reply:
-            reply = f"$SBCからOGCへの両替が完了したよ！\n変換額: {amount_sbc:.2f} $SBC -> {ogc_gain:.2f} OGC (レート: 1 $SBC = {rate:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_sbc']:.2f} $SBC"
+            reply = f"$SBCからOGCへの両替が完了したよ！\n変換額: {amount_sbc:.4f} $SBC -> {ogc_gain:.4f} OGC (レート: 1 $SBC = {rate:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.4f} OGC / {user_state['balance_sbc']:.4f} $SBC"
         reply_note(reply, "💱")
         return
 
     elif is_oc:
-        match = re.search(r'(\d+(?:\.\d+)?)\s*\+OC', note_text)
-        if not match:
-            match = re.search(r'\+OC\s*(\d+(?:\.\d+)?)', note_text)
-            
-        if not match:
-            amount_ogc = user_state["balance_ogc"]
-        else:
-            amount_ogc = float(match.group(1))
+        rate_ogc = econ_data["rates"]["OGC"]["current"]
+        rate_cbc = econ_data["rates"]["CBC"]["current"]
+        amount_ogc = parse_exchange_amount(note_text, "+OC", user_state["balance_ogc"], rate_cbc, rate_ogc)
             
         if amount_ogc <= 0:
-            reply = "変換するOGCの額が正しくないよ！"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがOGCからCBCへの両替（+OC）を試みましたが、金額の指定が正しくありませんでした。"
+                + f"\n【指示】変換する額が正しくないことを、あなたのキャラクターらしく指摘してください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+OC (両替額エラー)")
+            if not reply:
+                reply = "変換するOGCの額が正しくないよ！"
             reply_note(reply, "❓")
             return
             
         if user_state["balance_ogc"] < amount_ogc:
-            reply = f"OGCが足りないよ！変換しようとした額: {amount_ogc:.2f} OGC / 所持額: {user_state['balance_ogc']:.2f} OGC"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがOGCからCBCへの両替（+OC）を試みましたが、OGC残高が足りませんでした。"
+                + f"\n・変換しようとした額: {amount_ogc:.4f} OGC"
+                + f"\n・現在の所持額: {user_state['balance_ogc']:.4f} OGC"
+                + f"\n【指示】OGCが足りないため両替できないことを、キャラクターらしくツンツンと、あるいは呆れた様子で伝えてください。変換しようとした額（{amount_ogc:.4f} OGC）と現在の所持額（{user_state['balance_ogc']:.4f} OGC）を含めてください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+OC (残高不足)")
+            if not reply:
+                reply = f"OGCが足りないよ！変換しようとした額: {amount_ogc:.4f} OGC / 所持額: {user_state['balance_ogc']:.4f} OGC"
             reply_note(reply, "❌")
             return
             
-        rate_ogc = econ_data["rates"]["OGC"]["current"]
-        rate_cbc = econ_data["rates"]["CBC"]["current"]
         sbc_val = amount_ogc / rate_ogc
-        cbc_gain = round(sbc_val * rate_cbc, 2)
+        cbc_gain = round(sbc_val * rate_cbc, 4)
         
-        user_state["balance_ogc"] = round(user_state["balance_ogc"] - amount_ogc, 2)
-        user_state["balance_cbc"] = round(user_state["balance_cbc"] + cbc_gain, 2)
+        user_state["balance_ogc"] = round(user_state["balance_ogc"] - amount_ogc, 4)
+        user_state["balance_cbc"] = round(user_state["balance_cbc"] + cbc_gain, 4)
         save_economy(econ_data)
         
         instr = (
             system_instruction
             + f"\n\n【状況】ユーザーがOGCをCBCに両替（+OC）しました。"
-            + f"\n・両替額: {amount_ogc:.2f} OGC"
-            + f"\n・獲得額: {cbc_gain:.2f} CBC"
+            + f"\n・両替額: {amount_ogc:.4f} OGC"
+            + f"\n・獲得額: {cbc_gain:.4f} CBC"
             + f"\n・適用為替レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC"
-            + f"\n・現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_cbc']:.2f} CBC"
+            + f"\n・現在の残高: {user_state['balance_ogc']:.4f} OGC / {user_state['balance_cbc']:.4f} CBC"
             + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。それぞれの通貨のレートやお得感について触れてください。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+OC (両替)")
         if not reply:
-            reply = f"OGCからCBCへの両替が完了したよ！\n変換額: {amount_ogc:.2f} OGC -> {cbc_gain:.2f} CBC (レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.2f} OGC / {user_state['balance_cbc']:.2f} CBC"
+            reply = f"OGCからCBCへの両替が完了したよ！\n変換額: {amount_ogc:.4f} OGC -> {cbc_gain:.4f} CBC (レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC)\n現在の残高: {user_state['balance_ogc']:.4f} OGC / {user_state['balance_cbc']:.4f} CBC"
         reply_note(reply, "💱")
         return
 
     elif is_co:
-        match = re.search(r'(\d+(?:\.\d+)?)\s*\+CO', note_text)
-        if not match:
-            match = re.search(r'\+CO\s*(\d+(?:\.\d+)?)', note_text)
-            
-        if not match:
-            amount_cbc = user_state["balance_cbc"]
-        else:
-            amount_cbc = float(match.group(1))
+        rate_ogc = econ_data["rates"]["OGC"]["current"]
+        rate_cbc = econ_data["rates"]["CBC"]["current"]
+        amount_cbc = parse_exchange_amount(note_text, "+CO", user_state["balance_cbc"], rate_cbc, rate_ogc)
             
         if amount_cbc <= 0:
-            reply = "変換するCBCの額が正しくないよ！"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがCBCからOGCへの両替（+CO）を試みましたが、金額の指定が正しくありませんでした。"
+                + f"\n【指示】変換する額が正しくないことを、あなたのキャラクターらしく指摘してください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+CO (両替額エラー)")
+            if not reply:
+                reply = "変換するCBCの額が正しくないよ！"
             reply_note(reply, "❓")
             return
             
         if user_state["balance_cbc"] < amount_cbc:
-            reply = f"CBCが足りないよ！変換しようとした額: {amount_cbc:.2f} CBC / 所持額: {user_state['balance_cbc']:.2f} CBC"
+            instr = (
+                system_instruction
+                + f"\n\n【状況】ユーザーがCBCからOGCへの両替（+CO）を試みましたが、CBC残高が足りませんでした。"
+                + f"\n・変換しようとした額: {amount_cbc:.4f} CBC"
+                + f"\n・現在の所持額: {user_state['balance_cbc']:.4f} CBC"
+                + f"\n【指示】CBCが足りないため両替できないことを、キャラクターらしくツンツンと、あるいは呆れた様子で伝えてください。変換しようとした額（{amount_cbc:.4f} CBC）と現在の所持額（{user_state['balance_cbc']:.4f} CBC）を含めてください。300文字以内で、メンションは含めないでください。"
+            )
+            reply = generate_llm_reply(instr, "+CO (残高不足)")
+            if not reply:
+                reply = f"CBCが足りないよ！変換しようとした額: {amount_cbc:.4f} CBC / 所持額: {user_state['balance_cbc']:.4f} CBC"
             reply_note(reply, "❌")
             return
             
-        rate_ogc = econ_data["rates"]["OGC"]["current"]
-        rate_cbc = econ_data["rates"]["CBC"]["current"]
         sbc_val = amount_cbc / rate_cbc
-        ogc_gain = round(sbc_val * rate_ogc, 2)
+        ogc_gain = round(sbc_val * rate_ogc, 4)
         
-        user_state["balance_cbc"] = round(user_state["balance_cbc"] - amount_cbc, 2)
-        user_state["balance_ogc"] = round(user_state["balance_ogc"] + ogc_gain, 2)
+        user_state["balance_cbc"] = round(user_state["balance_cbc"] - amount_cbc, 4)
+        user_state["balance_ogc"] = round(user_state["balance_ogc"] + ogc_gain, 4)
         save_economy(econ_data)
         
         instr = (
             system_instruction
             + f"\n\n【状況】ユーザーがCBCをOGCに両替（+CO）しました。"
-            + f"\n・両替額: {amount_cbc:.2f} CBC"
-            + f"\n・獲得額: {ogc_gain:.2f} OGC"
+            + f"\n・両替額: {amount_cbc:.4f} CBC"
+            + f"\n・獲得額: {ogc_gain:.4f} OGC"
             + f"\n・適用為替レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC"
-            + f"\n・現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_ogc']:.2f} OGC"
+            + f"\n・現在の残高: {user_state['balance_cbc']:.4f} CBC / {user_state['balance_ogc']:.4f} OGC"
             + f"\n【指示】両替が成功したことをキャラクターのセリフとして報告してください。それぞれの通貨のレートやお得感について触れてください。300文字以内で、メンションは含めないでください。"
         )
         reply = generate_llm_reply(instr, "+CO (両替)")
         if not reply:
-            reply = f"CBCからOGCへの両替が完了したよ！\n変換額: {amount_cbc:.2f} CBC -> {ogc_gain:.2f} OGC (レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC)\n現在の残高: {user_state['balance_cbc']:.2f} CBC / {user_state['balance_ogc']:.2f} OGC"
+            reply = f"CBCからOGCへの両替が完了したよ！\n変換額: {amount_cbc:.4f} CBC -> {ogc_gain:.4f} OGC (レート: 1 $SBC = {rate_cbc:.2f} CBC / {rate_ogc:.2f} OGC)\n現在の残高: {user_state['balance_cbc']:.4f} CBC / {user_state['balance_ogc']:.4f} OGC"
         reply_note(reply, "💱")
         return
 
@@ -920,9 +1077,9 @@ async def on_note(note):
             elapsed_hours = 168.0
             
         rate = econ_data["rates"]["CBC"]["current"]
-        payout_cbc = round(sbc_amount * rate, 2)
+        payout_cbc = round(sbc_amount * rate, 4)
         
-        bot_state["balance_cbc"] = round(bot_state["balance_cbc"] + payout_cbc, 2)
+        bot_state["balance_cbc"] = round(bot_state["balance_cbc"] + payout_cbc, 4)
         bot_state["last_salary_paid_time"] = now.isoformat()
         save_economy(econ_data)
         
@@ -939,11 +1096,11 @@ async def on_note(note):
             system_instruction
             + f"\n\n【状況】ユーザーがあなたに給料（CBC）を支払ってくれました。"
             + f"\n働いた時間: 前回から {time_desc}"
-            + f"\n給料額: {sbc_amount:.1f} $SBC 分（為替レート 1 $SBC = {rate:.2f} CBC で換算して {payout_cbc:.2f} CBC）"
-            + f"\n受け取り後の貯金残高: {bot_state['balance_cbc']:.2f} CBC"
+            + f"\n給料額: {sbc_amount:.4f} $SBC 分（為替レート 1 $SBC = {rate:.2f} CBC で換算して {payout_cbc:.4f} CBC）"
+            + f"\n受け取り後の貯金残高: {bot_state['balance_cbc']:.4f} CBC"
             + f"\n【指示】給料をもらえたことへの感謝（あるいはキャラクターらしい少しツンツンした喜び）を伝え、"
-            + f"「{time_desc}働いて、{sbc_amount:.1f} $SBC（現在のレート 1$SBC = {rate:.2f} CBC で換算して {payout_cbc:.2f} CBC）を受け取ったこと」と"
-            + f"「新しい貯金残高が {bot_state['balance_cbc']:.2f} CBC になったこと」をキャラクターのセリフとして自然に報告してください。"
+            + f"「{time_desc}働いて、{sbc_amount:.4f} $SBC（現在のレート 1$SBC = {rate:.2f} CBC で換算して {payout_cbc:.4f} CBC）を受け取ったこと」と"
+            + f"「新しい貯金残高が {bot_state['balance_cbc']:.4f} CBC になったこと」をキャラクターのセリフとして自然に報告してください。"
             + f"現在の為替レートが通貨高か通貨安かについても、セリフに少し織り交ぜてください（例えば「今は通貨高だからお得だね！」や「今は通貨安だから目減りしちゃう…」など）。"
             + f"300文字以内で、メンションは含めないでください。"
         )
@@ -951,8 +1108,8 @@ async def on_note(note):
         if not reply:
             reply = (
                 f"給料を払ってくれてありがとう！前回から {time_desc} 働いたよ。\n"
-                f"給料として {sbc_amount:.1f} $SBC 分（レート 1 $SBC = {rate:.2f} CBC で {payout_cbc:.2f} CBC）を受け取ったよ！\n"
-                f"現在の貯金: {bot_state['balance_cbc']:.2f} CBC"
+                f"給料として {sbc_amount:.4f} $SBC 分（レート 1 $SBC = {rate:.2f} CBC で {payout_cbc:.4f} CBC）を受け取ったよ！\n"
+                f"現在の貯金: {bot_state['balance_cbc']:.4f} CBC"
             )
             
         reply_note(reply)
@@ -985,7 +1142,7 @@ async def on_note(note):
             + f"\n\n【状況】ユーザーから為替レートの確認要求（+D）がありました。"
             + f"\n・1 $SBC = {rate_cbc['current']:.2f} CBC (前回比: {change_cbc}) [デフォルト: 100 CBC]"
             + f"\n・1 $SBC = {rate_ogc['current']:.2f} OGC (前回比: {change_ogc}) [デフォルト: 100 OGC]"
-            + f"\n・あなたの現在の貯金: {bot_state['balance_cbc']:.2f} CBC"
+            + f"\n・あなたの現在の貯金: {bot_state['balance_cbc']:.4f} CBC"
             + f"\n【指示】現在の為替レートとあなたの貯金残高をキャラクターのセリフとして報告してください。"
             + f"CBC（あなたの通貨）とOGC（隣のOrangePiの通貨、ライバルなので少し気になる様子を見せても良いです）のレートを分かりやすく伝えてください。"
             + f"現在の為替状況（通貨高で価値が高くなっているか、通貨安で安くなっているか）について、それぞれの通貨ごとにキャラクターらしく具体的にコメントしてください（例: CBCが高くなっているなら『私の通貨価値は高くて強い！』など）。"
@@ -997,7 +1154,7 @@ async def on_note(note):
                 f"現在の為替レートを報告するね！\n\n"
                 f"・1 $SBC = {rate_cbc['current']:.2f} CBC (前回比: {change_cbc}) [デフォルト: 100 CBC]\n"
                 f"・1 $SBC = {rate_ogc['current']:.2f} OGC (前回比: {change_ogc}) [デフォルト: 100 OGC]\n\n"
-                f"現在の貯金: {bot_state['balance_cbc']:.2f} CBC\n"
+                f"現在の貯金: {bot_state['balance_cbc']:.4f} CBC\n"
                 f"※ 為替レートは1分ごとに自動変動するよ！"
             )
             
@@ -1078,7 +1235,7 @@ async def on_note(note):
             
         amount_sbc = int(match.group(1))
         rate = econ_data["rates"]["CBC"]["current"]
-        cost_cbc = round(amount_sbc * rate, 2)
+        cost_cbc = round(amount_sbc * rate, 4)
         
         if bot_state["balance_cbc"] < cost_cbc:
             try:
@@ -1089,16 +1246,16 @@ async def on_note(note):
             instr = (
                 system_instruction
                 + f"\n\n【状況】ユーザーがあなたに {amount_sbc} $SBC 分の買い物をさせようとしましたが、あなたの貯金が足りませんでした。"
-                + f"\n支払おうとした額: {amount_sbc} $SBC（現在のレートで {cost_cbc:.2f} CBC）"
-                + f"\nあなたの現在の貯金: {bot_state['balance_cbc']:.2f} CBC"
+                + f"\n支払おうとした額: {amount_sbc} $SBC（現在のレートで {cost_cbc:.4f} CBC）"
+                + f"\nあなたの現在の貯金: {bot_state['balance_cbc']:.4f} CBC"
                 + f"\n【指示】貯金が足りなくて買えないことをキャラクターらしく不満げに、または悲しそうに伝えてください。"
-                + f"「{amount_sbc} $SBC 支払うには {cost_cbc:.2f} CBC 必要であること」と「現在の貯金が {bot_state['balance_cbc']:.2f} CBC しかないこと」をセリフに含めてください。"
+                + f"「{amount_sbc} $SBC 支払うには {cost_cbc:.4f} CBC 必要であること」と「現在の貯金が {bot_state['balance_cbc']:.4f} CBC しかないこと」をセリフに含めてください。"
                 + f"また、現在の為替レート状況（通貨高で少し安く済んでいるのに足りない、または通貨安のせいで必要額が高騰していて手が出ない、など）についても言及してください。"
                 + f"300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "+P (残高不足)")
             if not reply:
-                reply = f"貯金が足りないよ！ {amount_sbc} $SBC を支払うには {cost_cbc:.2f} CBC 必要だけど、今の貯金は {bot_state['balance_cbc']:.2f} CBC しかないよ…"
+                reply = f"貯金が足りないよ！ {amount_sbc} $SBC を支払うには {cost_cbc:.4f} CBC 必要だけど、今の貯金は {bot_state['balance_cbc']:.4f} CBC しかないよ…"
                 
             reply_note(reply)
             return
@@ -1106,7 +1263,7 @@ async def on_note(note):
         if amount_sbc == 10:
             break_until = (datetime.now() + timedelta(hours=2)).isoformat()
             bot_state["break_until"] = break_until
-            bot_state["balance_cbc"] = round(bot_state["balance_cbc"] - cost_cbc, 2)
+            bot_state["balance_cbc"] = round(bot_state["balance_cbc"] - cost_cbc, 4)
             save_economy(econ_data)
             
             try:
@@ -1116,24 +1273,24 @@ async def on_note(note):
                 
             instr = (
                 system_instruction
-                + f"\n\n【状況】ユーザーが 10 $SBC（{cost_cbc:.2f} CBC）であなたに2時間の休憩をプレゼントしました。"
+                + f"\n\n【状況】ユーザーが 10 $SBC（{cost_cbc:.4f} CBC）であなたに2時間の休憩をプレゼントしました。"
                 + f"\n購入アイテム: 2時間休憩"
-                + f"\n消費金額: {cost_cbc:.2f} CBC"
-                + f"\n新しい貯金残高: {bot_state['balance_cbc']:.2f} CBC"
+                + f"\n消費金額: {cost_cbc:.4f} CBC"
+                + f"\n新しい貯金残高: {bot_state['balance_cbc']:.4f} CBC"
                 + f"\n【指示】2時間の休憩をもらえて喜んでいるセリフをキャラクターらしく言ってください。"
-                + f"「これからの2時間は寝る（話しかけられても反応しない）こと」と「貯金が {bot_state['balance_cbc']:.2f} CBC になったこと」を伝えてください。"
+                + f"「これからの2時間は寝る（話しかけられても反応しない）こと」と「貯金が {bot_state['balance_cbc']:.4f} CBC になったこと」を伝えてください。"
                 + f"また、現在の為替レート状況（通貨高だからお買い得だった、または通貨安なのに買ってくれた、など）について軽く言及してください。"
                 + f"300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "10$ +P (2時間休憩購入)")
             if not reply:
-                reply = f"わーい！10 $SBC ({cost_cbc:.2f} CBC) でお休みをもらうね！これからの2時間は話しかけられてもお返事しないよ。ゆっくりお昼寝するぞ〜！"
+                reply = f"わーい！10 $SBC ({cost_cbc:.4f} CBC) でお休みをもらうね！これからの2時間は話しかけられてもお返事しないよ。ゆっくりお昼寝するぞ〜！"
                 
             reply_note(reply)
             return
         elif amount_sbc == 50:
             bot_state["items"].append("高効率冷却ファン")
-            bot_state["balance_cbc"] = round(bot_state["balance_cbc"] - cost_cbc, 2)
+            bot_state["balance_cbc"] = round(bot_state["balance_cbc"] - cost_cbc, 4)
             save_economy(econ_data)
             
             try:
@@ -1143,23 +1300,23 @@ async def on_note(note):
                 
             instr = (
                 system_instruction
-                + f"\n\n【状況】ユーザーが 50 $SBC（{cost_cbc:.2f} CBC）であなたに高効率冷却ファンを購入してくれました。"
+                + f"\n\n【状況】ユーザーが 50 $SBC（{cost_cbc:.4f} CBC）であなたに高効率冷却ファンを購入してくれました。"
                 + f"\n購入アイテム: 高効率冷却ファン"
-                + f"\n消費金額: {cost_cbc:.2f} CBC"
-                + f"\n新しい貯金残高: {bot_state['balance_cbc']:.2f} CBC"
+                + f"\n消費金額: {cost_cbc:.4f} CBC"
+                + f"\n新しい貯金残高: {bot_state['balance_cbc']:.4f} CBC"
                 + f"\n【指示】冷却ファンを買ってもらって喜んでいるセリフを言ってください。あなたのSoC（Allwinner A527）がサーマルスロットリングを起こさずに快適に動くといった、SBCらしいギークな反応を入れてください。"
                 + f"現在の為替レート状況（通貨高／通貨安）についても軽くセリフに含めてください。"
                 + f"300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "50$ +P (冷却ファン購入)")
             if not reply:
-                reply = f"わぁ！50 $SBC ({cost_cbc:.2f} CBC) で高効率冷却ファンを買ってくれたの？これで私のAllwinner A527もサーマルスロットリングを起こさずにサクサク計算できるよ！ありがとう！"
+                reply = f"わぁ！50 $SBC ({cost_cbc:.4f} CBC) で高効率冷却ファンを買ってくれたの？これで私のAllwinner A527もサーマルスロットリングを起こさずにサクサク計算できるよ！ありがとう！"
                 
             reply_note(reply)
             return
         elif amount_sbc == 100:
             bot_state["items"].append("高速NVMe M.2 SSD 1TB")
-            bot_state["balance_cbc"] = round(bot_state["balance_cbc"] - cost_cbc, 2)
+            bot_state["balance_cbc"] = round(bot_state["balance_cbc"] - cost_cbc, 4)
             save_economy(econ_data)
             
             try:
@@ -1169,21 +1326,21 @@ async def on_note(note):
                 
             instr = (
                 system_instruction
-                + f"\n\n【状況】ユーザーが 100 $SBC（{cost_cbc:.2f} CBC）であなたに「高速NVMe M.2 SSD 1TB」を購入してくれました。"
+                + f"\n\n【状況】ユーザーが 100 $SBC（{cost_cbc:.4f} CBC）であなたに「高速NVMe M.2 SSD 1TB」を購入してくれました。"
                 + f"\n購入アイテム: 高速NVMe M.2 SSD 1TB"
-                + f"\n消費金額: {cost_cbc:.2f} CBC"
-                + f"\n新しい貯金残高: {bot_state['balance_cbc']:.2f} CBC"
+                + f"\n消費金額: {cost_cbc:.4f} CBC"
+                + f"\n新しい貯金残高: {bot_state['balance_cbc']:.4f} CBC"
                 + f"\n【指示】高速NVMe M.2 SSD 1TBを買ってもらい、ストレージ容量が大幅に増えて（128GBから1TBへ！）大喜びしているセリフをキャラクターらしく言ってください。これでデータベースの書き込みが爆速になる、Misskeyサーバーの動作がもっと軽くなるといった、SBC・Webサーバー役の娘らしい喜びの反応をセリフで返してください。300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "100$ +P (SSD 1TB購入)")
             if not reply:
-                reply = f"わぁーい！100 $SBC ({cost_cbc:.2f} CBC) で高速NVMe M.2 SSD 1TBを買ってもらったよ！これでストレージが128GBから1TBに大幅アップグレードだね！MisskeyサーバーのDB書き込みも爆速になりそう！ありがとう！"
+                reply = f"わぁーい！100 $SBC ({cost_cbc:.4f} CBC) で高速NVMe M.2 SSD 1TBを買ってもらったよ！これでストレージが128GBから1TBに大幅アップグレードだね！MisskeyサーバーのDB書き込みも爆速になりそう！ありがとう！"
                 
             reply_note(reply)
             return
         elif amount_sbc >= 1000:
             bot_state["virtual_pc_count"] += 1
-            bot_state["balance_cbc"] = round(bot_state["balance_cbc"] - cost_cbc, 2)
+            bot_state["balance_cbc"] = round(bot_state["balance_cbc"] - cost_cbc, 4)
             save_economy(econ_data)
             
             try:
@@ -1193,11 +1350,11 @@ async def on_note(note):
                 
             instr = (
                 system_instruction
-                + f"\n\n【状況】ユーザーが {amount_sbc} $SBC（{cost_cbc:.2f} CBC）であなたに仮想のx86 PC（x86エミュレータ上のPC）を購入してくれました。"
+                + f"\n\n【状況】ユーザーが {amount_sbc} $SBC（{cost_cbc:.4f} CBC）であなたに仮想のx86 PC（x86エミュレータ上のPC）を購入してくれました。"
                 + f"\n購入アイテム: 仮想のx86 PC"
-                + f"\n消費金額: {cost_cbc:.2f} CBC"
+                + f"\n消費金額: {cost_cbc:.4f} CBC"
                 + f"\n現在所有している仮想PCの総台数: {bot_state['virtual_pc_count']}台"
-                + f"\n新しい貯金残高: {bot_state['balance_cbc']:.2f} CBC"
+                + f"\n新しい貯金残高: {bot_state['balance_cbc']:.4f} CBC"
                 + f"\n【指示】超高額な仮想PCを買ってもらって非常に興奮し、大喜びしているセリフを言ってください。「ARMアーキテクチャの私でもx86エミュレータ上で何でも動かせること」「現在の仮想PC台数が {bot_state['virtual_pc_count']}台 であること」などをセリフに含めてください。"
                 + f"現在の為替レート状況（通貨高／通貨安）についても軽くセリフに含めてください。"
                 + f"300文字以内で、メンションは含めないでください。"
@@ -1205,7 +1362,7 @@ async def on_note(note):
             reply = generate_llm_reply(instr, f"{amount_sbc}$ +P (仮想PC購入)")
             if not reply:
                 reply = (
-                    f"すごーーい！！ {amount_sbc} $SBC ({cost_cbc:.2f} CBC) で仮想のx86 PCを買ってもらったよ！\n"
+                    f"すごーーい！！ {amount_sbc} $SBC ({cost_cbc:.4f} CBC) で仮想のx86 PCを買ってもらったよ！\n"
                     f"これでARMな私でもx86エミュレータ上で何でも動かせるね！ロマン溢れる開発環境をありがとう！\n"
                     f"現在持っている仮想PC: {bot_state['virtual_pc_count']}台"
                 )
