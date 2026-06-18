@@ -28,7 +28,7 @@ Apikey = os.getenv("APIKEY")  # Gemini API Key
 mk = Misskey(Server)
 mk.token = Token
 
-from shared_economy_helper import load_economy, save_economy, get_user_state, update_exchange_rates
+from shared_economy_helper import load_economy, save_economy, get_user_state, update_exchange_rates, get_recent_rates_history_desc, apply_rate_change
 
 def get_bot_state(data, bot_name="Cubie_A5E_San"):
     is_modified = False
@@ -360,10 +360,13 @@ def jobX(current_time):
     cbc_status = get_rate_status_description(rate_cbc)
     ogc_status = get_rate_status_description(rate_ogc)
     
+    history_desc = get_recent_rates_history_desc(limit=5)
+    
     rate_info = (
         f"\n【現在の為替レート情報】\n"
         f"・1 $SBC = {rate_cbc:.2f} CBC (あなたの通貨: {cbc_status})\n"
         f"・1 $SBC = {rate_ogc:.2f} OGC (隣のOrangePiの通貨: {ogc_status})\n"
+        f"\n{history_desc}\n"
     )
     system_message = seikaku + rate_info + "\n現在時刻は" + current_time + "です。"
     if is_angry and is_7am:
@@ -537,10 +540,13 @@ async def on_note(note):
     cbc_status = get_rate_status_description(rate_cbc)
     ogc_status = get_rate_status_description(rate_ogc)
     
+    history_desc = get_recent_rates_history_desc(limit=5)
+    
     rate_info = (
         f"\n【現在の為替レート情報】\n"
         f"・1 $SBC = {rate_cbc:.2f} CBC (あなたの通貨: {cbc_status})\n"
         f"・1 $SBC = {rate_ogc:.2f} OGC (隣のOrangePiの通貨: {ogc_status})\n"
+        f"\n{history_desc}\n"
     )
 
     user_cbc = user_state["balance_cbc"]
@@ -1434,9 +1440,31 @@ async def on_note(note):
         # 最後のユーザーメッセージ
         last_user_message = conversation_messages[-1]["content"]
 
-        reply = generate_llm_reply(system_instruction, last_user_message, history=history)
+        rate_rules = (
+            "\n【会話による為替操作ルール】\n"
+            "・あなたは会話相手とのやり取り（会話の内容、褒められたか、叱られたかなど）に応じて、あなたの国の通貨（CBC）の為替レートを動かすことができます。\n"
+            "・会話相手があなたを喜ばせたり、労ったり、給料の話をして嬉しかった場合は、レートを下げて（通貨高／CBC高にして）ください。\n"
+            "  タグの形式: `[RATE_CHANGE: -X.X]`（例: `[RATE_CHANGE: -2.5]`）を返信メッセージの最後に出力してください。変動幅は -0.5 から -5.0 の間で選んでください。\n"
+            "・会話相手があなたを怒らせたり、サービスを酷使したり、水に入れるぞと脅したりした場合は、レートを上げて（通貨安／CBC安にして）ください。\n"
+            "  タグの形式: `[RATE_CHANGE: +X.X]`（例: `[RATE_CHANGE: +3.0]`）を返信メッセージの最後に出力してください。変動幅は +0.5 から +5.0 の間で選んでください。\n"
+            "・特に変化がない場合は、タグを出力しないでください。\n"
+            "・タグはメッセージの最後など、目立たない場所に付与してください（返信時には自動的に削除されます）。"
+        )
+        talk_instruction = system_instruction + rate_rules
+        reply = generate_llm_reply(talk_instruction, last_user_message, history=history)
         if not reply:
             reply = "予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん..."
+            
+        # Parse RATE_CHANGE tag
+        match = re.search(r"\[RATE_CHANGE:\s*([+-]?\d+(?:\.\d+)?)\]", reply)
+        if match:
+            try:
+                delta = float(match.group(1))
+                apply_rate_change(econ_data, "CBC", delta)
+                save_economy(econ_data)
+                reply = re.sub(r"\[RATE_CHANGE:\s*[+-]?\d+(?:\.\d+)?\]", "", reply).strip()
+            except Exception as e:
+                print(f"Error applying rate change in Cubie general talk: {e}")
             
         reply_note(reply)
     except Exception as e:
