@@ -364,6 +364,8 @@ def generate_history_chart_img():
             with open(tmp_path, 'wb') as f:
                 f.write(res.content)
             return tmp_path
+    except Exception as e:
+        print(f"Error generating history chart: {e}")
     return None
 
 def apply_rate_change(data, coin, delta):
