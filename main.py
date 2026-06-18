@@ -1482,18 +1482,25 @@ async def on_follow(user):
 class CORSHTTPRequestHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.end_headers()
 
     def do_GET(self):
         import urllib.parse
         parsed = urllib.parse.urlparse(self.path)
+        
+        # 1. Custom handling for rates_history.csv
         if parsed.path == '/rates_history.csv':
             from shared_economy_helper import get_history_filepath
             filepath = get_history_filepath()
             if os.path.exists(filepath):
                 self.send_response(200)
                 self.send_header('Content-type', 'text/csv; charset=utf-8')
-                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 try:
                     with open(filepath, 'rb') as f:
@@ -1507,7 +1514,6 @@ class CORSHTTPRequestHandler(SimpleHTTPRequestHandler):
                 if os.path.exists(local_path):
                     self.send_response(200)
                     self.send_header('Content-type', 'text/csv; charset=utf-8')
-                    self.send_header('Access-Control-Allow-Origin', '*')
                     self.end_headers()
                     try:
                         with open(local_path, 'rb') as f:
@@ -1517,12 +1523,115 @@ class CORSHTTPRequestHandler(SimpleHTTPRequestHandler):
                     return
                 self.send_error(404, "File not found")
                 return
+
+        # 2. Key-value store / state API endpoints
+        api_endpoints = {
+            '/economy': 'shared_economy.json',
+            '/gauge_state': 'gauge_state.json',
+            '/login_bonus': 'login_bonus.json',
+            '/opizero3_state': 'opizero3_state.json'
+        }
+        
+        if parsed.path in api_endpoints:
+            filename = api_endpoints[parsed.path]
+            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            filepath = os.path.abspath(os.path.join(parent_dir, filename))
+            
+            if os.path.exists(filepath):
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                try:
+                    with open(filepath, 'rb') as f:
+                        self.wfile.write(f.read())
+                except Exception as e:
+                    print(f"Error reading file {filename}: {e}")
+                    self.send_error(500, "Error reading file")
+                return
+            else:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                
+                defaults = {
+                    '/economy': {
+                        "salary_cooldown_seconds": 86400,
+                        "rate_update_interval_seconds": 60,
+                        "rates": {
+                            "CBC": {"current": 100.0, "previous": 100.0},
+                            "OGC": {"current": 100.0, "previous": 100.0}
+                        },
+                        "last_rate_update": datetime.now().isoformat(),
+                        "bots": {},
+                        "users": {}
+                    },
+                    '/gauge_state': {
+                        "crazy_gauge": 65,
+                        "last_reply_time": "2026-06-11T20:51:23.045588"
+                    },
+                    '/login_bonus': {
+                        "users": {}
+                    },
+                    '/opizero3_state': {
+                        "sleep_state": {
+                            "is_sleeping": False,
+                            "sleep_start_time": None,
+                            "target_sleep_duration": None,
+                            "last_sleep_check_date": None
+                        },
+                        "user_data": {}
+                    }
+                }
+                
+                self.wfile.write(json.dumps(defaults.get(parsed.path, {})).encode('utf-8'))
+                return
+
         super().do_GET()
 
+    def do_PUT(self):
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.path)
+        
+        api_endpoints = {
+            '/economy': 'shared_economy.json',
+            '/gauge_state': 'gauge_state.json',
+            '/login_bonus': 'login_bonus.json',
+            '/opizero3_state': 'opizero3_state.json'
+        }
+        
+        if parsed.path in api_endpoints:
+            filename = api_endpoints[parsed.path]
+            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            filepath = os.path.abspath(os.path.join(parent_dir, filename))
+            
+            content_length = int(self.headers.get('Content-Length', 0))
+            put_data = self.rfile.read(content_length)
+            
+            try:
+                data = json.loads(put_data.decode('utf-8'))
+                
+                with tempfile.NamedTemporaryFile('w', dir=parent_dir or ".", delete=False, encoding='utf-8') as tf:
+                    json.dump(data, tf, indent=2, ensure_ascii=False)
+                    temp_name = tf.name
+                os.replace(temp_name, filepath)
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(json.dumps(data).encode('utf-8'))
+                return
+            except Exception as e:
+                print(f"Error saving data for {parsed.path}: {e}")
+                self.send_error(400, f"Invalid JSON or save error: {e}")
+                return
+                
+        self.send_error(404, "Not Found")
+
 def start_web_server():
-    server_address = ('', 8080)
+    port = int(os.getenv("DASHBOARD_PORT", 8080))
+    server_address = ('', port)
     httpd = HTTPServer(server_address, CORSHTTPRequestHandler)
-    print("Starting dashboard web server on port 8080...")
+    print(f"Starting dashboard web server on port {port}...")
     httpd.serve_forever()
 
 async def main():
