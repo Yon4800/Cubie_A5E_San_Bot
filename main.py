@@ -1484,6 +1484,41 @@ class CORSHTTPRequestHandler(SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         super().end_headers()
 
+    def do_GET(self):
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == '/rates_history.csv':
+            from shared_economy_helper import get_history_filepath
+            filepath = get_history_filepath()
+            if os.path.exists(filepath):
+                self.send_response(200)
+                self.send_header('Content-type', 'text/csv; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                try:
+                    with open(filepath, 'rb') as f:
+                        self.wfile.write(f.read())
+                except Exception as e:
+                    print(f"Error serving rates_history.csv: {e}")
+                return
+            else:
+                # Fallback to local file
+                local_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "rates_history.csv"))
+                if os.path.exists(local_path):
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/csv; charset=utf-8')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    try:
+                        with open(local_path, 'rb') as f:
+                            self.wfile.write(f.read())
+                    except Exception as e:
+                        print(f"Error serving local rates_history.csv: {e}")
+                    return
+                self.send_error(404, "File not found")
+                return
+        super().do_GET()
+
 def start_web_server():
     server_address = ('', 8080)
     httpd = HTTPServer(server_address, CORSHTTPRequestHandler)
