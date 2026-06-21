@@ -204,6 +204,7 @@ def generate_llm_reply(system_instruction: str, user_prompt: str, history=None) 
 client = genai.Client(api_key=Apikey)
 
 MY_ID = mk.i()["id"]
+MY_USERNAME = mk.i()["username"]
 WS_URL = "wss://" + Server + "/streaming?i=" + Token
 
 BOT_NAME = "Cubie_A5E_San"
@@ -632,6 +633,10 @@ async def on_note(note):
         if note["userId"] == MY_ID:
             return
             
+        if note.get("replyId") is not None:
+            if f"@{MY_USERNAME}".lower() not in note_text.lower():
+                return
+                
         bots = RESOLVED_BOTS
         bot_ids = {bot["id"]: name for name, bot in bots.items() if "id" in bot}
         
