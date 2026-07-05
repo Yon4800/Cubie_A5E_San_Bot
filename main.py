@@ -174,7 +174,7 @@ def parse_exchange_amount(note_text: str, cmd: str, balance: float, rate_cbc: fl
     # 6. Default (No numbers specified) -> Convert entire balance
     return balance
 
-def generate_llm_reply(system_instruction: str, user_prompt: str, history=None) -> str:
+def generate_llm_reply(system_instruction: str, user_prompt: str, history=None, image_parts=None) -> str:
     contents = []
     if history:
         for msg in history:
@@ -182,8 +182,15 @@ def generate_llm_reply(system_instruction: str, user_prompt: str, history=None) 
             contents.append(
                 types.Content(role=role, parts=[types.Part(text=msg["content"])])
             )
+    
+    last_user_parts = [types.Part(text=user_prompt)] if user_prompt else []
+    if image_parts:
+        last_user_parts.extend(image_parts)
+    if not last_user_parts:
+        last_user_parts = [types.Part(text="")]
+
     contents.append(
-        types.Content(role="user", parts=[types.Part(text=user_prompt)])
+        types.Content(role="user", parts=last_user_parts)
     )
     
     try:
@@ -1674,6 +1681,9 @@ async def on_note(note):
         return
 
     # Default to General talk logic (Any text mentioning the bot)
+    if "+LLM" not in note_text:
+        return
+
     try:
         mk.notes_reactions_create(note_id=note["id"], reaction="🤔")
     except Exception:
@@ -1708,8 +1718,28 @@ async def on_note(note):
             "・特に変化がない場合は、タグを出力しないでください。\n"
             "・タグはメッセージの最後など、目立たない場所に付与してください（返信時には自動的に削除されます）。"
         )
+        # 画像の取得とダウンロード
+        image_parts = []
+        loop = asyncio.get_running_loop()
+        for file in note.get("files", []):
+            mime_type = file.get("type", "")
+            if mime_type.startswith("image/"):
+                url = file.get("url")
+                if url:
+                    try:
+                        img_bytes = await loop.run_in_executor(None, lambda u=url: requests.get(u, timeout=10).content)
+                        if img_bytes:
+                            image_parts.append(
+                                types.Part.from_bytes(
+                                    data=img_bytes,
+                                    mime_type=mime_type
+                                )
+                            )
+                    except Exception as e:
+                        print(f"Error downloading image {url}: {e}")
+
         talk_instruction = system_instruction + rate_rules
-        reply = generate_llm_reply(talk_instruction, last_user_message, history=history)
+        reply = generate_llm_reply(talk_instruction, last_user_message, history=history, image_parts=image_parts)
         if not reply:
             reply = "予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん..."
             
