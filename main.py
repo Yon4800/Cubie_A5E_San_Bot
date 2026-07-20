@@ -4,8 +4,7 @@ import websockets
 from misskey import Misskey, NoteVisibility
 from dotenv import load_dotenv
 import os
-from google import genai
-from google.genai import types
+from openrouter_helper import generate_llm_reply
 import schedule
 from datetime import datetime, timedelta
 import random
@@ -174,41 +173,7 @@ def parse_exchange_amount(note_text: str, cmd: str, balance: float, rate_cbc: fl
     # 6. Default (No numbers specified) -> Convert entire balance
     return balance
 
-def generate_llm_reply(system_instruction: str, user_prompt: str, history=None, image_parts=None) -> str:
-    contents = []
-    if history:
-        for msg in history:
-            role = "model" if msg["role"] == "assistant" else "user"
-            contents.append(
-                types.Content(role=role, parts=[types.Part(text=msg["content"])])
-            )
-    
-    last_user_parts = [types.Part(text=user_prompt)] if user_prompt else []
-    if image_parts:
-        last_user_parts.extend(image_parts)
-    if not last_user_parts:
-        last_user_parts = [types.Part(text="")]
 
-    contents.append(
-        types.Content(role="user", parts=last_user_parts)
-    )
-    
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-            ),
-            contents=contents,
-        )
-        safe_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text).strip()
-        return safe_text
-    except Exception as e:
-        print(f"Gemini API error in generate_llm_reply: {e}")
-        return None
-
-# Google Genai クライアント初期化
-client = genai.Client(api_key=Apikey)
 
 MY_ID = mk.i()["id"]
 MY_USERNAME = mk.i()["username"]
@@ -496,16 +461,10 @@ def jobX(current_time):
         )
         
     try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            config=types.GenerateContentConfig(
-                system_instruction=system_message,
-            ),
-            contents=types.Content(
-                role="user", parts=[types.Part(text="定期投稿の時間だよ！")],
-            ),
+        safe_text = generate_llm_reply(
+            system_instruction=system_message,
+            user_prompt="定期投稿の時間だよ！"
         )
-        safe_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text).strip()
     except Exception as e:
         print(f"Gemini API error in jobX: {e}")
         if is_angry and is_7am:
@@ -759,13 +718,10 @@ async def on_note(note):
         await asyncio.sleep(random.uniform(5.0, 10.0))
         
         try:
-            response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
-                config=types.GenerateContentConfig(system_instruction=instruction),
-                contents=conversation_messages
+            reply_text = generate_llm_reply(
+                system_instruction=instruction,
+                history=conversation_messages
             )
-            reply_text = response.text.strip()
-            reply_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", reply_text).strip()
             
             if next_bot:
                 reply_text += f"\nねえ、@{next_bot['username']} はどう思う？ +TALK"
@@ -1739,12 +1695,7 @@ async def on_note(note):
                     try:
                         img_bytes = await loop.run_in_executor(None, lambda u=url: requests.get(u, timeout=10).content)
                         if img_bytes:
-                            image_parts.append(
-                                types.Part.from_bytes(
-                                    data=img_bytes,
-                                    mime_type=mime_type
-                                )
-                            )
+                            image_parts.append((img_bytes, mime_type))
                     except Exception as e:
                         print(f"Error downloading image {url}: {e}")
 
