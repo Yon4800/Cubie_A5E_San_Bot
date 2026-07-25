@@ -195,7 +195,7 @@ def generate_llm_reply(system_instruction: str, user_prompt: str, history=None, 
     
     try:
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model="gemini-3.5-flash-lite",
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
             ),
@@ -497,7 +497,7 @@ def jobX(current_time):
         
     try:
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model="gemini-3.5-flash-lite",
             config=types.GenerateContentConfig(
                 system_instruction=system_message,
             ),
@@ -760,7 +760,7 @@ async def on_note(note):
         
         try:
             response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.5-flash-lite",
                 config=types.GenerateContentConfig(system_instruction=instruction),
                 contents=conversation_messages
             )
