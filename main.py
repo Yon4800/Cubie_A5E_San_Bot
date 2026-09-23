@@ -13,6 +13,7 @@ import random
 import re
 import tempfile
 import requests
+from typing import Optional, Dict, Any, List
 import threading
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 
@@ -196,7 +197,7 @@ def generate_llm_reply(system_instruction: str, user_prompt: str, history=None, 
     if image_parts:
         last_user_parts.extend(image_parts)
     if not last_user_parts:
-        last_user_parts = [types.Part(text="")]
+        last_user_parts = [types.Part(text="こんにちは！お話ししましょう。")]
 
     if contents and contents[-1].role == "user":
         contents[-1].parts.extend(last_user_parts)
@@ -292,7 +293,7 @@ def parse_talk_step(text: str):
             pass
     return 1
 
-def get_designated_bot_for_talk(raw_status, note_text: str) -> Optional[str]:
+def get_designated_bot_for_talk(raw_status, note_text: str):
     """
     +TALK投稿に対して応答・リアクションを担当するボット（唯一の1体）を決定する。
     他のボットは重複応答・重複リアクションを防ぐため即座に無視する。
@@ -390,35 +391,6 @@ async def resolve_all_bots():
         except Exception as e:
             print(f"Warning: Could not resolve username {uname} for bot {b_name}: {e}")
 
-def get_talk_participants(note_id, mk):
-    participants = set()
-    current_note_id = note_id
-    depth = 0
-    while current_note_id and depth < 10:
-        try:
-            current_note = mk.notes_show(note_id=current_note_id)
-            participants.add(current_note["userId"])
-            current_note_id = current_note.get("replyId")
-            depth += 1
-        except Exception:
-            break
-    return participants
-
-def get_talk_participant_counts(note_id, mk, bot_ids):
-    counts = {bot_id: 0 for bot_id in bot_ids}
-    current_note_id = note_id
-    depth = 0
-    while current_note_id and depth < 20:
-        try:
-            current_note = mk.notes_show(note_id=current_note_id)
-            user_id = current_note["userId"]
-            if user_id in counts:
-                counts[user_id] += 1
-            current_note_id = current_note.get("replyId")
-            depth += 1
-        except Exception:
-            break
-    return counts
 
 
 oha = "07:00"
@@ -690,39 +662,26 @@ async def runner():
             await asyncio.sleep(1)
 
 
-def get_conversation_history(note_id: str, max_depth: int = 10) -> list:
+def get_conversation_history(status_id: str, max_depth: int = 10) -> list:
     """
-    リプライチェーンを遡って会話履歴を取得する
+    Mastodonのcontext APIを利用して会話履歴を取得する
     """
     messages = []
-    current_note_id = note_id
-    depth = 0
-
-    while current_note_id and depth < max_depth:
-        try:
-            current_note = mk.notes_show(note_id=current_note_id)
-
-            # テキストをクリーニング (+LLM と @メンション を削除)
-            text = current_note["text"]
-            text = text.replace("+LLM", "").strip()
-
-            # @メンション を削除 (ドメイン付きを含む)
+    if not mc or not status_id:
+        return messages
+    try:
+        ctx = mc.get_context(status_id)
+        ancestors = ctx.get("ancestors", [])[-max_depth:]
+        for st in ancestors:
+            text = MastodonClient.html_to_text(st.get("content", ""))
+            text = text.replace("+LLM", "").replace("+llm", "").strip()
             text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", text).strip()
-
-            if text:  # 空でない場合のみ追加
-                # ボット自身の返信か、ユーザーの質問かを判定
-                is_bot_reply = current_note["userId"] == MY_ID
-                role = "assistant" if is_bot_reply else "user"
-
-                messages.insert(0, {"role": role, "content": text})
-
-            # 親ノートへ
-            current_note_id = current_note.get("replyId")
-            depth += 1
-        except Exception as e:
-            print(f"会話履歴取得エラー: {e}")
-            break
-
+            if text:
+                is_bot = str(st.get("account", {}).get("id")) == MY_ID
+                role = "assistant" if is_bot else "user"
+                messages.append({"role": role, "content": text})
+    except Exception as e:
+        print(f"会話履歴取得エラー: {e}")
     return messages
 
 
@@ -924,7 +883,7 @@ async def on_note(note, is_notification: bool = False):
             pass
 
         try:
-            conversation_messages = get_conversation_history(note.get("replyId"))
+            conversation_messages = get_conversation_history(note.get("id"))
             user_input = note_text.replace("+LLM", "").replace("+llm", "").replace("+Llm", "").strip()
             user_input = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input).strip()
             if not user_input:
@@ -984,18 +943,18 @@ async def on_note(note, is_notification: bool = False):
 
     # Check for FX and Personal Shop commands
     note_text = note.get("text", "")
-    is_wallet_cmd = any(cmd in note_text for cmd in ["+W", "+wallet", "+WALLET"])
-    is_shop_cmd = any(cmd in note_text for cmd in ["+shop", "+SHOP"])
-    is_buy_cmd = any(cmd in note_text for cmd in ["+buy", "+BUY"])
-    is_graph_cmd = any(cmd in note_text for cmd in ["+G", "+graph", "+GRAPH"])
+    u_text = note_text.upper()
+    is_wallet_cmd = any(cmd in u_text for cmd in ["+W", "+WALLET"])
+    is_shop_cmd = "+SHOP" in u_text
+    is_buy_cmd = "+BUY" in u_text
+    is_graph_cmd = any(cmd in u_text for cmd in ["+G", "+GRAPH"])
 
-    
-    is_cs = "+CS" in note_text
-    is_sc = "+SC" in note_text
-    is_os = "+OS" in note_text
-    is_so = "+SO" in note_text
-    is_oc = "+OC" in note_text
-    is_co = "+CO" in note_text
+    is_cs = "+CS" in u_text
+    is_sc = "+SC" in u_text
+    is_os = "+OS" in u_text
+    is_so = "+SO" in u_text
+    is_oc = "+OC" in u_text
+    is_co = "+CO" in u_text
 
     SHOP_ITEMS = {
         1: {"name": "SBC研究者バッジ", "cost": 10, "desc": "SBCが大好きな研究者の証。"},
@@ -1435,7 +1394,7 @@ async def on_note(note, is_notification: bool = False):
         return
 
     # Check for "+C" (Daily Salary)
-    if "+C" in note["text"]:
+    if "+C" in u_text:
         now = datetime.now()
         last_paid_str = bot_state["last_salary_paid_time"]
         try:
@@ -1533,7 +1492,7 @@ async def on_note(note, is_notification: bool = False):
         return
 
     # Check for "+D" (Exchange Rates Inquiry)
-    if "+D" in note["text"]:
+    if "+D" in u_text:
         rate_cbc = econ_data["rates"]["CBC"]
         rate_ogc = econ_data["rates"]["OGC"]
         
@@ -1591,9 +1550,9 @@ async def on_note(note, is_notification: bool = False):
         
         if tmp_path and os.path.exists(tmp_path):
             try:
-                with open(tmp_path, "rb") as f:
-                    drive_file = mk.drive_files_create(f)
-                file_id = drive_file["id"]
+                media_id = None
+                if mc:
+                    media_id = mc.upload_media(tmp_path)
                 
                 try:
                     os.remove(tmp_path)
@@ -1603,20 +1562,23 @@ async def on_note(note, is_notification: bool = False):
                 instr = (
                     system_instruction
                     + f"\n\n【状況】ユーザーから為替レートの推移グラフ画像（+G）の表示要求がありました。"
-                    + f"\n画像（PNG）はすでに生成され、Misskeyのドライブ経由で添付されています。"
+                    + f"\n画像（PNG）はすでに生成され、添付されています。"
                     + f"\n【指示】グラフ画像を添付して返信する旨を、あなたのキャラクターらしく可愛らしく、または少しツンツンと報告してください。300文字以内で、メンションは含めないでください。"
                 )
                 reply = generate_llm_reply(instr, "+G (為替レートグラフ確認)")
                 if not reply:
                     reply = "為替レートの推移グラフ（最新の40エントリー）を生成したよ！確認してみてね。"
                 
-                mk.notes_create(
-                    text=reply,
-                    reply_id=note["id"],
-                    file_ids=[file_id],
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True
-                )
+                vis = note.get("visibility", "public")
+                user_acct = note.get("user", {}).get("acct") or note.get("user", {}).get("username")
+                full_reply = f"@{user_acct} {reply}" if user_acct and not reply.startswith(f"@{user_acct}") else reply
+                if mc:
+                    mc.post_status(
+                        text=full_reply,
+                        in_reply_to_id=note["id"],
+                        visibility=vis,
+                        media_ids=[media_id] if media_id else None
+                    )
                 return
             except Exception as e:
                 print(f"Error uploading/posting chart: {e}")
@@ -1627,10 +1589,10 @@ async def on_note(note, is_notification: bool = False):
 
 
     # Check for "+P" (Shop Purchases)
-    if "+P" in note["text"]:
-        match = re.search(r'(\d+)\s*\$\s*\+P', note["text"])
+    if "+P" in u_text:
+        match = re.search(r'(\d+)\s*\$\s*\+P', note["text"], re.IGNORECASE)
         if not match:
-            match = re.search(r'\+P\s*(\d+)\s*\$', note["text"])
+            match = re.search(r'\+P\s*(\d+)\s*\$', note["text"], re.IGNORECASE)
             
         if not match:
             try:
@@ -1805,7 +1767,7 @@ async def on_note(note, is_notification: bool = False):
             return
 
     # Check for "+M" (System Status Report)
-    if "+M" in note["text"]:
+    if "+M" in u_text:
         try:
             mc.react(note["id"], emoji="📊")
         except Exception:
