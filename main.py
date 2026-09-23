@@ -293,7 +293,6 @@ def register_bot(bot_name, client_inst):
     global MY_ID, MY_USERNAME
     try:
         from datetime import datetime, timedelta
-        from shared_economy_helper import load_economy, save_economy
         my_info = client_inst.get_me()
         my_id = str(my_info["id"])
         my_username = my_info["username"]
@@ -334,7 +333,6 @@ async def resolve_all_bots():
         RESOLVED_BOTS[b_name] = {"id": "", "username": uname}
 
     try:
-        from shared_economy_helper import load_economy
         econ_data = load_economy()
         if "bots" in econ_data:
             for b_name, b_info in econ_data["bots"].items():
@@ -739,7 +737,6 @@ async def on_note(note, is_notification: bool = False):
         processed_store.add(note_id)
 
         try:
-            from shared_economy_helper import load_economy
             econ_data = load_economy()
         except Exception as e:
             print(f"Error loading economy in Cubie +TALK: {e}")
