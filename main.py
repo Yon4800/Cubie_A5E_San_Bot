@@ -183,10 +183,14 @@ def generate_llm_reply(system_instruction: str, user_prompt: str, history=None, 
     contents = []
     if history:
         for msg in history:
-            role = "model" if msg["role"] == "assistant" else "user"
-            contents.append(
-                types.Content(role=role, parts=[types.Part(text=msg["content"])])
-            )
+            role = "model" if msg.get("role") in ["assistant", "model"] else "user"
+            text_content = msg.get("content", "")
+            if not text_content:
+                continue
+            if contents and contents[-1].role == role:
+                contents[-1].parts.append(types.Part(text=text_content))
+            else:
+                contents.append(types.Content(role=role, parts=[types.Part(text=text_content)]))
     
     last_user_parts = [types.Part(text=user_prompt)] if user_prompt else []
     if image_parts:
@@ -194,9 +198,10 @@ def generate_llm_reply(system_instruction: str, user_prompt: str, history=None, 
     if not last_user_parts:
         last_user_parts = [types.Part(text="")]
 
-    contents.append(
-        types.Content(role="user", parts=last_user_parts)
-    )
+    if contents and contents[-1].role == "user":
+        contents[-1].parts.extend(last_user_parts)
+    else:
+        contents.append(types.Content(role="user", parts=last_user_parts))
     
     try:
         response = client.models.generate_content(
@@ -206,7 +211,10 @@ def generate_llm_reply(system_instruction: str, user_prompt: str, history=None, 
             ),
             contents=contents,
         )
-        safe_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", response.text).strip()
+        raw_text = response.text if hasattr(response, "text") and response.text else ""
+        if not raw_text:
+            return None
+        safe_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", raw_text).strip()
         return safe_text
     except Exception as e:
         print(f"Gemini API error in generate_llm_reply: {e}")
@@ -708,18 +716,25 @@ async def on_note(note, is_notification: bool = False):
             return
 
         current_step = parse_talk_step(note_text)
-        if not current_step or current_step > len(CHOREI_ORDER):
-            return
+        is_mentioned_directly = is_notification or (mc and mc.is_mentioned(raw_status, my_id=MY_ID, my_username=MY_USERNAME, note_text=note_text))
 
-        expected_bot = CHOREI_ORDER[current_step - 1]
-        if expected_bot != BOT_NAME:
-            # 自分の順番ではない場合は即座に無視（重複返信や誤爆を完全防止）
-            return
-
-        is_mentioned = is_notification or (mc and mc.is_mentioned(raw_status, my_id=MY_ID, my_username=MY_USERNAME, note_text=note_text))
-        # ステップ1（初回投稿）以外は前ボットからのバトン（メンション付き）なので、自分宛てメンションでなければ無視
-        if current_step > 1 and not is_mentioned:
-            return
+        if current_step and current_step > 1:
+            if current_step > len(CHOREI_ORDER):
+                return
+            expected_bot = CHOREI_ORDER[current_step - 1]
+            if expected_bot != BOT_NAME:
+                # 自分の順番ではない場合は即座に無視（重複返信防止）
+                return
+        else:
+            if is_mentioned_directly:
+                try:
+                    current_step = CHOREI_ORDER.index(BOT_NAME) + 1
+                except ValueError:
+                    current_step = 1
+            else:
+                if BOT_NAME != CHOREI_ORDER[0]:
+                    return
+                current_step = 1
 
         processed_store.add(note_id)
 
@@ -880,6 +895,74 @@ async def on_note(note, is_notification: bool = False):
         + note["user"]["name"]
         + " という方にメンションされました。"
     )
+
+    # 1.5. 最優先: +LLM コマンド (大文字・小文字問わず対応)
+    is_llm = "+LLM" in note_text.upper()
+    if is_llm:
+        try:
+            if mc:
+                mc.react(note["id"], emoji="🤔")
+        except Exception:
+            pass
+
+        try:
+            conversation_messages = get_conversation_history(note.get("replyId"))
+            user_input = note_text.replace("+LLM", "").replace("+llm", "").replace("+Llm", "").strip()
+            user_input = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input).strip()
+            if not user_input:
+                user_input = "こんにちは！お話ししましょう。"
+
+            conversation_messages.append({"role": "user", "content": user_input})
+            history = conversation_messages[:-1]
+            last_user_message = conversation_messages[-1]["content"]
+
+            rate_rules = (
+                "\n【会話による為替操作ルール】\n"
+                "・あなたは会話相手とのやり取り（会話の内容、褒められたか、叱られたかなど）に応じて、あなたの国の通貨（CBC）の為替レートを動かすことができます。\n"
+                "・会話相手があなたを喜ばせたり、労ったり、給料の話をして嬉しかった場合は、レートを下げて（通貨高／CBC高にして）ください。\n"
+                "  タグの形式: `[RATE_CHANGE: -X.X]`（例: `[RATE_CHANGE: -2.5]`）を返信メッセージの最後に出力してください。変動幅は -0.5 から -5.0 の間で選んでください。\n"
+                "・会話相手があなたを怒らせたり、サービスを酷使したり、水に入れるぞと脅したりした場合は、レートを上げて（通貨安／CBC安にして）ください。\n"
+                "  タグの形式: `[RATE_CHANGE: +X.X]`（例: `[RATE_CHANGE: +3.0]`）を返信メッセージの最後に出力してください。変動幅は +0.5 から +5.0 の間で選んでください。\n"
+                "・特に変化がない場合は、タグを出力しないでください。\n"
+                "・タグはメッセージの最後など、目立たない場所に付与してください（返信時には自動的に削除されます）。"
+            )
+
+            image_parts = []
+            loop = asyncio.get_running_loop()
+            for file in note.get("files", []):
+                mime_type = file.get("type", "")
+                if mime_type.startswith("image/"):
+                    url = file.get("url")
+                    if url:
+                        try:
+                            img_bytes = await loop.run_in_executor(None, lambda u=url: requests.get(u, timeout=10).content)
+                            if img_bytes:
+                                image_parts.append(
+                                    types.Part.from_bytes(data=img_bytes, mime_type=mime_type)
+                                )
+                        except Exception as e:
+                            print(f"Error downloading image {url}: {e}")
+
+            talk_instruction = system_instruction + rate_rules
+            reply = generate_llm_reply(talk_instruction, last_user_message, history=history, image_parts=image_parts)
+            if not reply:
+                reply = "予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん..."
+                
+            match = re.search(r"\[RATE_CHANGE:\s*([+-]?\d+(?:\.\d+)?)\]", reply)
+            if match:
+                try:
+                    delta = float(match.group(1))
+                    apply_rate_change(econ_data, "CBC", delta)
+                    save_economy(econ_data)
+                    reply = re.sub(r"\[RATE_CHANGE:\s*[+-]?\d+(?:\.\d+)?\]", "", reply).strip()
+                except Exception as e:
+                    print(f"Error applying rate change in Cubie general talk: {e}")
+                
+            reply_note(reply)
+        except Exception as e:
+            reply_note("予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん...")
+            print(f"Error in Cubie +LLM: {e}")
+        return
 
     # Check for FX and Personal Shop commands
     note_text = note.get("text", "")
@@ -1725,84 +1808,7 @@ async def on_note(note, is_notification: bool = False):
         reply_note(reply)
         return
 
-    # Default to General talk logic (Any text mentioning the bot)
-    if "+LLM" not in note_text:
         return
-
-    try:
-        mc.react(note["id"], emoji="🤔")
-    except Exception:
-        pass
-
-    try:
-        # 親ノートまでの会話履歴を取得
-        conversation_messages = get_conversation_history(note.get("replyId"))
-
-        # 現在のメッセージを追加
-        user_input = note["text"]
-        user_input = re.sub(
-            r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input
-        ).strip()
-
-        conversation_messages.append({"role": "user", "content": user_input})
-
-        history = []
-        for msg in conversation_messages[:-1]:  # 最後のユーザーメッセージ以外
-            history.append(msg)
-
-        # 最後のユーザーメッセージ
-        last_user_message = conversation_messages[-1]["content"]
-
-        rate_rules = (
-            "\n【会話による為替操作ルール】\n"
-            "・あなたは会話相手とのやり取り（会話の内容、褒められたか、叱られたかなど）に応じて、あなたの国の通貨（CBC）の為替レートを動かすことができます。\n"
-            "・会話相手があなたを喜ばせたり、労ったり、給料の話をして嬉しかった場合は、レートを下げて（通貨高／CBC高にして）ください。\n"
-            "  タグの形式: `[RATE_CHANGE: -X.X]`（例: `[RATE_CHANGE: -2.5]`）を返信メッセージの最後に出力してください。変動幅は -0.5 から -5.0 の間で選んでください。\n"
-            "・会話相手があなたを怒らせたり、サービスを酷使したり、水に入れるぞと脅したりした場合は、レートを上げて（通貨安／CBC安にして）ください。\n"
-            "  タグの形式: `[RATE_CHANGE: +X.X]`（例: `[RATE_CHANGE: +3.0]`）を返信メッセージの最後に出力してください。変動幅は +0.5 から +5.0 の間で選んでください。\n"
-            "・特に変化がない場合は、タグを出力しないでください。\n"
-            "・タグはメッセージの最後など、目立たない場所に付与してください（返信時には自動的に削除されます）。"
-        )
-        # 画像の取得とダウンロード
-        image_parts = []
-        loop = asyncio.get_running_loop()
-        for file in note.get("files", []):
-            mime_type = file.get("type", "")
-            if mime_type.startswith("image/"):
-                url = file.get("url")
-                if url:
-                    try:
-                        img_bytes = await loop.run_in_executor(None, lambda u=url: requests.get(u, timeout=10).content)
-                        if img_bytes:
-                            image_parts.append(
-                                types.Part.from_bytes(
-                                    data=img_bytes,
-                                    mime_type=mime_type
-                                )
-                            )
-                    except Exception as e:
-                        print(f"Error downloading image {url}: {e}")
-
-        talk_instruction = system_instruction + rate_rules
-        reply = generate_llm_reply(talk_instruction, last_user_message, history=history, image_parts=image_parts)
-        if not reply:
-            reply = "予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん..."
-            
-        # Parse RATE_CHANGE tag
-        match = re.search(r"\[RATE_CHANGE:\s*([+-]?\d+(?:\.\d+)?)\]", reply)
-        if match:
-            try:
-                delta = float(match.group(1))
-                apply_rate_change(econ_data, "CBC", delta)
-                save_economy(econ_data)
-                reply = re.sub(r"\[RATE_CHANGE:\s*[+-]?\d+(?:\.\d+)?\]", "", reply).strip()
-            except Exception as e:
-                print(f"Error applying rate change in Cubie general talk: {e}")
-            
-        reply_note(reply)
-    except Exception as e:
-        reply_note("予期せぬエラーが発生したみたい...しっかりしてよよんぱちさん...")
-        print(e)
 
 
 async def on_follow(user):
@@ -1991,7 +1997,29 @@ def status_to_note_dict(status):
         "raw_status": status
     }
 
+def is_recent_status(status, max_age_seconds=300) -> bool:
+    """
+    ステータスが直近（デフォルト5分以内）のものかどうかを判定。
+    古い投稿をすべて拾って応答する暴走やセキュリティリスクを防止。
+    """
+    created_at_str = status.get("created_at")
+    if not created_at_str:
+        return True
+    try:
+        dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+        now = datetime.now(dt.tzinfo)
+        age = (now - dt).total_seconds()
+        if age > max_age_seconds:
+            return False
+    except Exception:
+        pass
+    return True
+
 async def polling_runner():
+    """
+    Mastodon / Hollo REST API による安全な定期ポーリングループ
+    直前のもののみを対象とし、パブリックTLの無差別応答を防止
+    """
     print(f"[{BOT_NAME}] Starting Mastodon/Hollo polling runner...")
     poll_count = 0
     try:
@@ -2001,19 +2029,41 @@ async def polling_runner():
     except Exception as ex:
         print(f"[{BOT_NAME}] Error during initial auto-followback: {ex}")
 
+    # 起動時のセーフガード: 5分以上前の古い投稿は既読化し、起動時に一括応答しない
+    try:
+        init_notifs = mc.get_notifications(limit=15)
+        for notif in init_notifs:
+            st = notif.get("status")
+            if st and not is_recent_status(st, max_age_seconds=300):
+                processed_store.add(str(st.get("id")))
+
+        init_home = mc.get_home_timeline(limit=15)
+        for st in init_home:
+            if not is_recent_status(st, max_age_seconds=300):
+                processed_store.add(str(st.get("id")))
+    except Exception as e:
+        print(f"[{BOT_NAME}] Initial catchup safeguard notice: {e}")
+
     while True:
         try:
             poll_count += 1
-            notifications = mc.get_notifications(limit=15)
+            # 1. 自分宛ての通知（メンション）を直近のものから確認
+            notifications = mc.get_notifications(limit=10)
             for notif in reversed(notifications):
                 notif_type = notif.get("type")
                 if notif_type == "mention":
                     status = notif.get("status")
                     if status:
                         sid = str(status.get("id"))
-                        if not processed_store.is_processed(sid):
-                            note_dict = status_to_note_dict(status)
-                            await on_note(note_dict, is_notification=True)
+                        if not sid or processed_store.is_processed(sid):
+                            continue
+                        if not is_recent_status(status, max_age_seconds=300):
+                            processed_store.add(sid)
+                            continue
+                        note_dict = status_to_note_dict(status)
+                        await on_note(note_dict, is_notification=True)
+                        break  # 一度にすべて拾わず、直前のものを1件ずつ処理
+
                 elif notif_type in ["follow", "follow_request"]:
                     account = notif.get("account", {})
                     if account:
@@ -2022,18 +2072,25 @@ async def polling_runner():
                             mc.authorize_follow_request(acc_id)
                         mc.follow_account(acc_id)
 
-            home_statuses = mc.get_home_timeline(limit=15)
-            pub_statuses = mc.get_public_timeline(local=True, limit=15)
+            # 2. ホームタイムライン（フォロー中の仲間）の直前投稿のみ確認
+            # ※ パブリックTLの無差別監視はセキュリティ上廃止
+            home_statuses = mc.get_home_timeline(limit=10)
             seen_ids = set()
-            for st in home_statuses + pub_statuses:
+            for st in home_statuses:
                 sid = str(st.get("id"))
                 if not sid or sid in seen_ids or processed_store.is_processed(sid):
                     continue
                 seen_ids.add(sid)
+
+                if not is_recent_status(st, max_age_seconds=300):
+                    processed_store.add(sid)
+                    continue
+
                 txt = MastodonClient.html_to_text(st.get("content", ""))
                 if "+TALK" in txt.upper() or (mc and mc.is_mentioned(st, my_id=MY_ID, my_username=MY_USERNAME, note_text=txt)):
                     note_dict = status_to_note_dict(st)
                     await on_note(note_dict, is_notification=False)
+                    break  # 一度に大量に処理せず、直前のものを調べて応答
 
             if poll_count % 20 == 0:
                 followed = mc.auto_follow_back()
