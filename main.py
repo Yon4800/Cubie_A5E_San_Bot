@@ -1988,8 +1988,17 @@ def status_to_note_dict(status):
 
 async def polling_runner():
     print(f"[{BOT_NAME}] Starting Mastodon/Hollo polling runner...")
+    poll_count = 0
+    try:
+        followed = mc.auto_follow_back()
+        if followed > 0:
+            print(f"[{BOT_NAME}] Initial auto-followback: followed {followed} users.")
+    except Exception as ex:
+        print(f"[{BOT_NAME}] Error during initial auto-followback: {ex}")
+
     while True:
         try:
+            poll_count += 1
             notifications = mc.get_notifications(limit=15)
             for notif in reversed(notifications):
                 notif_type = notif.get("type")
@@ -2000,10 +2009,13 @@ async def polling_runner():
                         if not processed_store.is_processed(sid):
                             note_dict = status_to_note_dict(status)
                             await on_note(note_dict)
-                elif notif_type == "follow":
+                elif notif_type in ["follow", "follow_request"]:
                     account = notif.get("account", {})
                     if account:
-                        await on_follow(account)
+                        acc_id = str(account.get("id"))
+                        if notif_type == "follow_request":
+                            mc.authorize_follow_request(acc_id)
+                        mc.follow_account(acc_id)
 
             home_statuses = mc.get_home_timeline(limit=15)
             for st in reversed(home_statuses):
@@ -2013,6 +2025,11 @@ async def polling_runner():
                     if not processed_store.is_processed(sid):
                         note_dict = status_to_note_dict(st)
                         await on_note(note_dict)
+
+            if poll_count % 20 == 0:
+                followed = mc.auto_follow_back()
+                if followed > 0:
+                    print(f"[{BOT_NAME}] Periodic auto-followback: followed {followed} users.")
 
         except Exception as e:
             print(f"[{BOT_NAME}] Polling error: {e}")
