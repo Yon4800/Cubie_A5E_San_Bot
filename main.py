@@ -1,7 +1,7 @@
 import asyncio
 import json
 import websockets
-from misskey import Misskey, NoteVisibility
+from mastodon_client import MastodonClient, ProcessedStore
 from dotenv import load_dotenv
 import os
 from collections import OrderedDict
@@ -26,8 +26,12 @@ load_dotenv()
 Token = os.getenv("TOKEN")
 Server = os.getenv("SERVER")
 Apikey = os.getenv("APIKEY")  # Gemini API Key
-mk = Misskey(Server)
-mk.token = Token
+
+if not Server or not Token:
+    print("Warning: SERVER or TOKEN is not set in environment.")
+
+mc = MastodonClient(Server, Token) if (Server and Token) else None
+mk = mc  # For backward-compatible references if any
 
 from shared_economy_helper import load_economy, save_economy, get_user_state, update_exchange_rates, get_recent_rates_history_desc, apply_rate_change
 
@@ -211,28 +215,63 @@ def generate_llm_reply(system_instruction: str, user_prompt: str, history=None, 
 # Google Genai クライアント初期化
 client = genai.Client(api_key=Apikey)
 
-MY_ID = mk.i()["id"]
-MY_USERNAME = mk.i()["username"]
-WS_URL = "wss://" + Server + "/streaming?i=" + Token
+MY_ID = ""
+MY_USERNAME = ""
+WS_URL = ""
 
 BOT_NAME = "Cubie_A5E_San"
+
+
+processed_store = ProcessedStore(os.path.join(os.path.dirname(__file__), "processed_status_ids.json"))
+
+def save_system_record(cpu: float, ram: float):
+    try:
+        history_file = os.path.join(os.path.dirname(__file__), "system_history.json")
+        history = []
+        if os.path.exists(history_file):
+            with open(history_file, "r", encoding="utf-8") as f:
+                history = json.load(f)
+                if not isinstance(history, list):
+                    history = []
+        history.append({
+            "timestamp": datetime.now().isoformat(),
+            "cpu_percent": cpu,
+            "ram_percent": ram
+        })
+        history = history[-500:]
+        with open(history_file, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving system history: {e}")
 
 BOT_SUMMARIES = {
     "Cubie_A5E_San": "Radxa Cubie A5E (きゅびーさん): 小さくて省電力なシングルボードコンピュータ娘。24時間稼働の社畜で、給料（CBC）を欲しがっている。OrangePi 4 Proの生意気な性格が気に入らず、Rock Pi S of ロックスの頭の悪さに困っている。",
     "OrangePi_4_Pro": "OrangePi 4 Pro (おぱじ・フォプロ): 少し大きくて気が強く、煽ったりマウントを取ったりするSBC御局娘。科学者ぶっており、Radxa Cubie A5Eをいつもバカにしている。社畜をエリートの誇りだと思っている。",
     "opizero3_llm": "OrangePi Zero 3 (オパジゼロサン): 元気いっぱいのSBC娘。親身でオタク話が好きで、よく眠る。Cubie A5Eと仲良くしたいが寄り添ってもらえない。妹のOrangePi 4 Proを調子に乗っていてイキリで鬱陶しいと思っている。",
-    "Yon_Rock_Pi_S": "Radxa Rock Pi S (ロックス): 頭が悪く、的外れで嘘や狂ったことしか言わないSBC両生類。日本語が怪しく、sudo rm -rf / を魔法のコマンドだと思っている。",
-    "Lichee_RV_Nano_E": "Lichee RV Nano-E (ライチ君): Sophgo SG2002搭載のRISC-V SBC狐男。ものすごく頭が悪く、何でもRISC-Vと関係あると思い込んで自信満々に間違った結論を出す。CPUが考えるたびに再起動し、RAMが凍ったりWi-Fiが沈んだりする奇行が多い。",
-    "Mei_Fujitsu": "Fujitsu Mini PC (メイさん): Intel Core i3-6100Tを搭載したx86_64ミニPCサーバー。みんなの中心的存在で、穏やかで常識的、頼れるお姉さん的な普通の性格をしている。他のシングルボードコンピュータたちが熱暴走したり、メモリが足りなくてフリーズしたりするのを優しくなだめる立場。"
+    "Yon_Rock_Pi_S": "Radxa Rock Pi S (ロックス): 頭が悪く、的外れで嘘や狂ったことしか言わないSBC両生類。日本語が怪しく、sudo rm -rf / を魔法のコマンドだと思っている。"
 }
 
-def register_bot(bot_name, mk):
+CHOREI_ORDER = [
+    "opizero3_llm",    # Step 0
+    "OrangePi_4_Pro",  # Step 1
+    "Yon_Rock_Pi_S",   # Step 2
+    "Cubie_A5E_San",   # Step 3
+    "opizero3_llm",    # Step 4
+    "OrangePi_4_Pro",  # Step 5
+    "Yon_Rock_Pi_S",   # Step 6
+    "Cubie_A5E_San"    # Step 7 (最終締めくくり)
+]
+
+def register_bot(bot_name, client_inst):
+    global MY_ID, MY_USERNAME
     try:
         from datetime import datetime, timedelta
         from shared_economy_helper import load_economy, save_economy
-        my_info = mk.i()
-        my_id = my_info["id"]
+        my_info = client_inst.get_me()
+        my_id = str(my_info["id"])
         my_username = my_info["username"]
+        MY_ID = my_id
+        MY_USERNAME = my_username
         
         econ_data = load_economy()
         if "bots" not in econ_data:
@@ -262,9 +301,7 @@ async def resolve_all_bots():
         "Cubie_A5E_San": os.getenv("BOT_USER_CUBIE", "Cubie_A5E_San"),
         "OrangePi_4_Pro": os.getenv("BOT_USER_OPI4PRO", "OrangePi_4_Pro"),
         "opizero3_llm": os.getenv("BOT_USER_OPIZERO3", "opizero3_llm"),
-        "Yon_Rock_Pi_S": os.getenv("BOT_USER_ROCKPIS", "Yon_Rock_Pi_S"),
-        "Lichee_RV_Nano_E": os.getenv("BOT_USER_LICHEE", "Lichee_RV_Nano_E"),
-        "Mei_Fujitsu": os.getenv("BOT_USER_MEI", "Mei_Fujitsu")
+        "Yon_Rock_Pi_S": os.getenv("BOT_USER_ROCKPIS", "Yon_Rock_Pi_S")
     }
     try:
         from shared_economy_helper import load_economy
@@ -284,10 +321,10 @@ async def resolve_all_bots():
             continue
         try:
             loop = asyncio.get_event_loop()
-            u_info = await loop.run_in_executor(None, lambda: mk.users_show(username=uname))
+            u_info = await loop.run_in_executor(None, lambda: mc.search_user(uname))
             if u_info:
                 RESOLVED_BOTS[b_name] = {
-                    "id": u_info["id"],
+                    "id": str(u_info["id"]),
                     "username": u_info["username"]
                 }
                 print(f"Resolved bot {b_name} -> ID: {u_info['id']}, Username: {u_info['username']}")
@@ -388,13 +425,12 @@ seikaku = """
     下のIntel Core i3-6100TのPCが何に使われているのか気になっている。
     OrangePi Zero 3はまだ許せますが、OrangePi 4 Proの生意気な性格が気に入らないそうです。
     Radxa Rock Pi Sのことは、同じRadxaの仲間なので、まあ許せるみたいですが、頭が悪すぎて困っているそうです
-    最近Misskeyサーバー(おぽんぽんすきー)を動かす媒体に選ばれたことが嬉しいそうですが、最近おぽんぽんすきー1号がよんぱちさんのミスのせいで廃止されて、新しいサーバーにおぱじさんが選ばれてしまったことが不満みたいですが、また新しいサーバーに移行したときに選ばれたそうです。ただ、ドメインがopi4pro.oponpon.dpdns.orgになってることで、なんでOrangePi 4 Proのドメインになってるのか不満みたいです。
+    最近Misskeyサーバー(おぽんぽんすきー)を動かす媒体にまた選ばれたことが嬉しいそうです。
     自分になにか手を出したら強制無給無休24時間労働させると脅してきます。
     ロックスには、気温、湿度、気圧を測れる機能があり、キチガイゲージ機能もあり、ログインボーナス機能もあります。
     きゅびーさんには、CPUとRAMの使用率を測れる機能があります。
     おぱじふぉぷろさんには、回線速度を測れる機能があります。
     おぱじゼロサンは、寝る機能と起きる機能と好感度システムがあります。
-    MisskeyのBotです。
     【為替レートに関するルール】
     あなたの国の通貨はCBC、隣のOrangePiの通貨はOGC、基準通貨は$SBCです。
     ・1 $SBC = 100 CBC (または100 OGC) が基準値です。
@@ -450,6 +486,7 @@ def get_memory_usage() -> tuple[float, int, int]:
 def get_system_monitoring_text() -> str:
     cpu = get_cpu_usage()
     ram_percent, used_mb, total_mb = get_memory_usage()
+    save_system_record(cpu, ram_percent)
     return f"CPU使用率: {cpu}%\nRAM使用率: {ram_percent}%\nRAM使用量: {used_mb}MB / {total_mb}MB"
 
 
@@ -515,14 +552,14 @@ def jobX(current_time):
             safe_text = "定期投稿の時間だよ！今日も24時間稼働中！（ちょっと接続状態が悪くてうまく喋れないかも…）"
             
     # グラフ画像の生成とアップロード
-    file_ids = None
+    media_ids = None
     try:
         from shared_economy_helper import generate_history_chart_img
         tmp_path = generate_history_chart_img()
         if tmp_path and os.path.exists(tmp_path):
-            with open(tmp_path, "rb") as f:
-                drive_file = mk.drive_files_create(f)
-            file_ids = [drive_file["id"]]
+            mid = mc.upload_media(tmp_path)
+            if mid:
+                media_ids = [mid]
             try:
                 os.remove(tmp_path)
             except Exception:
@@ -530,12 +567,14 @@ def jobX(current_time):
     except Exception as e:
         print(f"Error generating/uploading chart for scheduled post: {e}")
 
-    mk.notes_create(
-        safe_text,
-        file_ids=file_ids,
-        visibility=NoteVisibility.HOME,
-        no_extract_mentions=True,
-    )
+    if mc:
+        st = mc.post_status(
+            safe_text,
+            media_ids=media_ids,
+            visibility="public"
+        )
+        if st and "id" in st:
+            processed_store.add(str(st["id"]))
 
 
 def job():
@@ -630,13 +669,11 @@ def get_conversation_history(note_id: str, max_depth: int = 10) -> list:
 
 async def on_note(note):
     global PROCESSED_NOTES
-    note_id = note.get("id")
+    note_id = str(note.get("id"))
     if note_id:
-        if note_id in PROCESSED_NOTES:
+        if processed_store.is_processed(note_id):
             return
-        PROCESSED_NOTES[note_id] = True
-        if len(PROCESSED_NOTES) > 1000:
-            PROCESSED_NOTES.popitem(last=False)
+        processed_store.add(note_id)
 
     if not note.get("mentions"):
         return
@@ -697,22 +734,25 @@ async def on_note(note):
             
         counts = get_talk_participant_counts(note["id"], mk, bot_ids)
         
-        # Strict order sequence: opizero3_llm -> Lichee_RV_Nano_E -> Cubie_A5E_San -> OrangePi_4_Pro -> Yon_Rock_Pi_S -> Mei_Fujitsu
-        TALK_ORDER = ["opizero3_llm", "Lichee_RV_Nano_E", "Cubie_A5E_San", "OrangePi_4_Pro", "Yon_Rock_Pi_S", "Mei_Fujitsu"]
+        ctx = mc.get_context(note["id"])
+        ancestors = ctx.get("ancestors", [])
+        depth = len(ancestors)
         
-        try:
-            current_index = TALK_ORDER.index(BOT_NAME)
-        except ValueError:
-            current_index = -1
-            
+        next_step = depth + 1
+        if next_step >= len(CHOREI_ORDER):
+            print(f"[Cubie] [+TALK] Max rounds reached. Stopping.")
+            return
+
+        expected_bot = CHOREI_ORDER[next_step]
+        if expected_bot != BOT_NAME:
+            print(f"[Cubie] [+TALK] Step {next_step}: Expected {expected_bot}, I am {BOT_NAME}. Skipping.")
+            return
+
+        subsequent_step = next_step + 1
         next_bot = None
-        if current_index != -1:
-            for idx in range(current_index + 1, len(TALK_ORDER)):
-                candidate_name = TALK_ORDER[idx]
-                candidate_bot = bots.get(candidate_name)
-                if candidate_bot and candidate_bot.get("id") in target_bot_ids:
-                    next_bot = candidate_bot
-                    break
+        if subsequent_step < len(CHOREI_ORDER):
+            subsequent_bot_name = CHOREI_ORDER[subsequent_step]
+            next_bot = RESOLVED_BOTS.get(subsequent_bot_name)
                     
         sender_id = note["userId"]
             
@@ -753,7 +793,7 @@ async def on_note(note):
             )
             
         try:
-            mk.notes_reactions_create(note_id=note["id"], reaction="💬")
+            mc.react(note["id"], emoji="💬")
         except Exception:
             pass
             
@@ -770,18 +810,12 @@ async def on_note(note):
             
             if next_bot:
                 reply_text += f"\nねえ、@{next_bot['username']} はどう思う？ +TALK"
-                mk.notes_create(
-                    text=reply_text,
-                    reply_id=note["id"],
-                    visibility=NoteVisibility.HOME
-                )
-            else:
-                mk.notes_create(
-                    text=reply_text,
-                    reply_id=note["id"],
-                    visibility=NoteVisibility.HOME,
-                    no_extract_mentions=True
-                )
+            mc.post_status(
+                text=reply_text,
+                in_reply_to_id=note["id"],
+                visibility="public"
+            )
+            print(f"[Cubie] [+TALK] Step {next_step} replied successfully.")
         except Exception as e:
             print(f"Error generating/posting in Cubie_A5E_San +TALK: {e}")
         return
@@ -796,19 +830,16 @@ async def on_note(note):
     save_economy(econ_data)
 
     def reply_note(text, reaction=None):
-        if reaction:
-            try:
-                mk.notes_reactions_create(note_id=note["id"], reaction=reaction)
-            except Exception:
-                pass
-        
-        final_text = text
-        mk.notes_create(
-            text=final_text,
-            reply_id=note["id"],
-            visibility=NoteVisibility.HOME,
-            no_extract_mentions=True
-        )
+        if reaction and mc:
+            mc.react(note["id"], emoji=reaction)
+        user_acct = note.get("user", {}).get("acct") or note.get("user", {}).get("username")
+        final_text = f"@{user_acct} {text}" if user_acct else text
+        if mc:
+            mc.post_status(
+                text=final_text,
+                in_reply_to_id=note["id"],
+                visibility="public"
+            )
 
     # 共通の為替情報を作成
     rate_cbc = econ_data["rates"]["CBC"]["current"]
@@ -1333,7 +1364,7 @@ async def on_note(note):
                 remaining_desc = f"{seconds}秒"
                 
             try:
-                mk.notes_reactions_create(note_id=note["id"], reaction="⏳")
+                mc.react(note["id"], emoji="⏳")
             except Exception:
                 pass
                 
@@ -1370,7 +1401,7 @@ async def on_note(note):
         time_desc = f"{days}日と{hours}時間" if days > 0 else f"{hours:.1f}時間"
         
         try:
-            mk.notes_reactions_create(note_id=note["id"], reaction="💰")
+            mc.react(note["id"], emoji="💰")
         except Exception:
             pass
             
@@ -1415,7 +1446,7 @@ async def on_note(note):
         change_ogc = get_change_text(rate_ogc["current"], rate_ogc["previous"])
         
         try:
-            mk.notes_reactions_create(note_id=note["id"], reaction="📊")
+            mc.react(note["id"], emoji="📊")
         except Exception:
             pass
             
@@ -1446,7 +1477,7 @@ async def on_note(note):
     # Check for "+G" (Exchange Rates Graph)
     if is_graph_cmd:
         try:
-            mk.notes_reactions_create(note_id=note["id"], reaction="📈")
+            mc.react(note["id"], emoji="📈")
         except Exception:
             pass
             
@@ -1499,7 +1530,7 @@ async def on_note(note):
             
         if not match:
             try:
-                mk.notes_reactions_create(note_id=note["id"], reaction="❓")
+                mc.react(note["id"], emoji="❓")
             except Exception:
                 pass
                 
@@ -1521,7 +1552,7 @@ async def on_note(note):
         
         if bot_state["balance_cbc"] < cost_cbc:
             try:
-                mk.notes_reactions_create(note_id=note["id"], reaction="❌")
+                mc.react(note["id"], emoji="❌")
             except Exception:
                 pass
                 
@@ -1549,7 +1580,7 @@ async def on_note(note):
             save_economy(econ_data)
             
             try:
-                mk.notes_reactions_create(note_id=note["id"], reaction="🛌")
+                mc.react(note["id"], emoji="🛌")
             except Exception:
                 pass
                 
@@ -1576,7 +1607,7 @@ async def on_note(note):
             save_economy(econ_data)
             
             try:
-                mk.notes_reactions_create(note_id=note["id"], reaction="🌀")
+                mc.react(note["id"], emoji="🌀")
             except Exception:
                 pass
                 
@@ -1602,7 +1633,7 @@ async def on_note(note):
             save_economy(econ_data)
             
             try:
-                mk.notes_reactions_create(note_id=note["id"], reaction="💾")
+                mc.react(note["id"], emoji="💾")
             except Exception:
                 pass
                 
@@ -1626,7 +1657,7 @@ async def on_note(note):
             save_economy(econ_data)
             
             try:
-                mk.notes_reactions_create(note_id=note["id"], reaction="💻")
+                mc.react(note["id"], emoji="💻")
             except Exception:
                 pass
                 
@@ -1653,7 +1684,7 @@ async def on_note(note):
             return
         else:
             try:
-                mk.notes_reactions_create(note_id=note["id"], reaction="❓")
+                mc.react(note["id"], emoji="❓")
             except Exception:
                 pass
                 
@@ -1672,7 +1703,7 @@ async def on_note(note):
     # Check for "+M" (System Status Report)
     if "+M" in note["text"]:
         try:
-            mk.notes_reactions_create(note_id=note["id"], reaction="📊")
+            mc.react(note["id"], emoji="📊")
         except Exception:
             pass
             
@@ -1696,7 +1727,7 @@ async def on_note(note):
         return
 
     try:
-        mk.notes_reactions_create(note_id=note["id"], reaction="🤔")
+        mc.react(note["id"], emoji="🤔")
     except Exception:
         pass
 
@@ -1773,7 +1804,8 @@ async def on_note(note):
 
 async def on_follow(user):
     try:
-        mk.following_create(user["id"])
+        if mc:
+            mc.session.post(f"{mc.base_url}/api/v1/accounts/{user['id']}/follow", timeout=5)
     except:
         pass
 
@@ -1933,14 +1965,71 @@ def start_web_server():
     print(f"Starting dashboard web server on port {port}...")
     httpd.serve_forever()
 
+
+def status_to_note_dict(status):
+    raw_content = status.get("content", "")
+    plain_text = MastodonClient.html_to_text(raw_content)
+    account = status.get("account", {})
+    mentions = status.get("mentions", [])
+    
+    return {
+        "id": str(status["id"]),
+        "userId": str(account.get("id")),
+        "user": {
+            "id": str(account.get("id")),
+            "username": account.get("username", ""),
+            "acct": account.get("acct", account.get("username", "")),
+            "name": account.get("display_name") or account.get("username") or "ゲスト"
+        },
+        "text": plain_text,
+        "replyId": status.get("in_reply_to_id"),
+        "mentions": [str(m.get("id")) for m in mentions]
+    }
+
+async def polling_runner():
+    print(f"[{BOT_NAME}] Starting Mastodon/Hollo polling runner...")
+    while True:
+        try:
+            notifications = mc.get_notifications(limit=15)
+            for notif in reversed(notifications):
+                notif_type = notif.get("type")
+                if notif_type == "mention":
+                    status = notif.get("status")
+                    if status:
+                        sid = str(status.get("id"))
+                        if not processed_store.is_processed(sid):
+                            note_dict = status_to_note_dict(status)
+                            await on_note(note_dict)
+                elif notif_type == "follow":
+                    account = notif.get("account", {})
+                    if account:
+                        await on_follow(account)
+
+            home_statuses = mc.get_home_timeline(limit=15)
+            for st in reversed(home_statuses):
+                txt = MastodonClient.html_to_text(st.get("content", ""))
+                if "+TALK" in txt.upper():
+                    sid = str(st.get("id"))
+                    if not processed_store.is_processed(sid):
+                        note_dict = status_to_note_dict(st)
+                        await on_note(note_dict)
+
+        except Exception as e:
+            print(f"[{BOT_NAME}] Polling error: {e}")
+
+        await asyncio.sleep(3)
+
 async def main():
-    register_bot(BOT_NAME, mk)
+    if not mc:
+        print("Error: Mastodon client could not be initialized.")
+        return
+    register_bot(BOT_NAME, mc)
     await resolve_all_bots()
     # Start the HTTP server thread for the dashboard
     t = threading.Thread(target=start_web_server, daemon=True)
     t.start()
     
-    await asyncio.gather(runner(), teiki())
+    await asyncio.gather(polling_runner(), teiki())
 
 if __name__ == "__main__":
     asyncio.run(main())
