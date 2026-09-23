@@ -303,21 +303,27 @@ async def resolve_all_bots():
         "opizero3_llm": os.getenv("BOT_USER_OPIZERO3", "opizero3_llm"),
         "Yon_Rock_Pi_S": os.getenv("BOT_USER_ROCKPIS", "Yon_Rock_Pi_S")
     }
+    for b_name, uname in env_usernames.items():
+        RESOLVED_BOTS[b_name] = {"id": "", "username": uname}
+
     try:
         from shared_economy_helper import load_economy
         econ_data = load_economy()
         if "bots" in econ_data:
             for b_name, b_info in econ_data["bots"].items():
-                if isinstance(b_info, dict) and "id" in b_info and "username" in b_info:
-                    RESOLVED_BOTS[b_name] = {
-                        "id": b_info["id"],
-                        "username": b_info["username"]
-                    }
+                if isinstance(b_info, dict):
+                    b_id = str(b_info.get("id", ""))
+                    b_uname = b_info.get("username", "")
+                    if b_id and not b_id.startswith("id_") and b_uname and not b_uname.endswith("_user"):
+                        RESOLVED_BOTS[b_name] = {
+                            "id": b_id,
+                            "username": b_uname
+                        }
     except Exception as e:
         print(f"Warning: Could not load bots from economy file: {e}")
 
     for b_name, uname in env_usernames.items():
-        if not uname:
+        if RESOLVED_BOTS.get(b_name, {}).get("id"):
             continue
         try:
             loop = asyncio.get_event_loop()
@@ -667,138 +673,94 @@ def get_conversation_history(note_id: str, max_depth: int = 10) -> list:
     return messages
 
 
-async def on_note(note):
+async def on_note(note, is_notification: bool = False):
     global PROCESSED_NOTES
     note_id = str(note.get("id"))
-    if note_id:
-        if processed_store.is_processed(note_id):
-            return
-        processed_store.add(note_id)
-
-    if not note.get("mentions"):
-        return
-        
-    if MY_ID not in note["mentions"]:
-        return
-        
-    # Check if bot is on break
-    econ_data = load_economy()
-    bot_state = get_bot_state(econ_data)
-    if is_bot_on_break(bot_state):
-        print("Bot is on break, ignoring mention.")
+    if not note_id or processed_store.is_processed(note_id):
         return
 
-    # --- +TALK implementation ---
+    raw_status = note.get("raw_status") or {}
     note_text = note.get("text") or ""
     is_talk_cmd = "+TALK" in note_text.upper()
 
+    # 1. グループ会話 (+TALK) / 朝礼
     if is_talk_cmd:
         if note["userId"] == MY_ID:
             return
-            
-        if note.get("replyId") is not None:
-            if f"@{MY_USERNAME}".lower() not in note_text.lower():
-                return
-                
-        bots = RESOLVED_BOTS
-        bot_ids = {bot["id"]: name for name, bot in bots.items() if "id" in bot}
-        
-        is_mentioned = (note.get("mentions") and MY_ID in note["mentions"])
-        if not is_mentioned:
+
+        is_mentioned = is_notification or (mc and mc.is_mentioned(raw_status, my_id=MY_ID, my_username=MY_USERNAME, note_text=note_text))
+        if note.get("replyId") is not None and not is_mentioned:
             return
-            
+
+        processed_store.add(note_id)
+
         try:
-            starting_note = note
-            depth = 0
-            while starting_note.get("replyId") and depth < 10:
-                starting_note = mk.notes_show(note_id=starting_note["replyId"])
-                depth += 1
-            
-            starting_mentions = [m for m in starting_note.get("mentions", []) if m in bot_ids]
+            from shared_economy_helper import load_economy
+            econ_data = load_economy()
         except Exception as e:
-            print(f"Error resolving starting note in +TALK: {e}")
-            starting_mentions = [MY_ID]
-            
-        if len(starting_mentions) <= 1:
-            target_bot_ids = set(bot_ids.keys())
-        else:
-            target_bot_ids = set(starting_mentions)
-            
-        if note.get("replyId") is None:
-            if starting_mentions and starting_mentions[0] != MY_ID:
-                return
-                
-        history = get_conversation_history(note["id"])
-        if len(history) >= 10:
+            print(f"Error loading economy in Cubie +TALK: {e}")
             return
-            
-        counts = get_talk_participant_counts(note["id"], mk, bot_ids)
-        
-        ctx = mc.get_context(note["id"])
+
+        ctx = mc.get_context(note_id) if mc else {"ancestors": []}
         ancestors = ctx.get("ancestors", [])
         depth = len(ancestors)
-        
-        next_step = depth + 1
-        if next_step >= len(CHOREI_ORDER):
-            print(f"[Cubie] [+TALK] Max rounds reached. Stopping.")
+
+        current_step = depth
+        if current_step >= len(CHOREI_ORDER):
+            print(f"[Cubie] [+TALK] Max rounds reached ({len(CHOREI_ORDER)}). Stopping.")
             return
 
-        expected_bot = CHOREI_ORDER[next_step]
+        expected_bot = CHOREI_ORDER[current_step]
         if expected_bot != BOT_NAME:
-            print(f"[Cubie] [+TALK] Step {next_step}: Expected {expected_bot}, I am {BOT_NAME}. Skipping.")
+            print(f"[Cubie] [+TALK] Step {current_step}: Expected {expected_bot}, I am {BOT_NAME}. Skipping.")
             return
 
-        subsequent_step = next_step + 1
+        next_step = current_step + 1
         next_bot = None
-        if subsequent_step < len(CHOREI_ORDER):
-            subsequent_bot_name = CHOREI_ORDER[subsequent_step]
+        if next_step < len(CHOREI_ORDER):
+            subsequent_bot_name = CHOREI_ORDER[next_step]
             next_bot = RESOLVED_BOTS.get(subsequent_bot_name)
-                    
+
         sender_id = note["userId"]
-            
-        sender_id = note["userId"]
-        sender_name = bot_ids.get(sender_id, note["user"].get("name") or note["user"].get("username") or "ゲスト")
-        
+        sender_name = note["user"].get("name") or note["user"].get("username") or "ゲスト"
         topic = note_text.replace("+TALK", "").replace("+talk", "").strip()
         topic = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", topic).strip()
-        
+
         conversation_messages = []
-        for msg in history:
-            role = "model" if msg["role"] == "assistant" else "user"
-            conversation_messages.append(
-                types.Content(role=role, parts=[types.Part(text=msg["content"])])
-            )
-            
+        for st in ancestors:
+            txt = MastodonClient.html_to_text(st.get("content", ""))
+            txt = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", txt).strip()
+            role = "model" if str(st.get("account", {}).get("id")) == MY_ID else "user"
+            conversation_messages.append(types.Content(role=role, parts=[types.Part(text=txt)]))
+        conversation_messages.append(types.Content(role="user", parts=[types.Part(text=topic)]))
+
         instruction = seikaku + f"\n現在時刻は {datetime.now().strftime('%Y年%m月%d日 %H:%M')} です。\n"
         if next_bot:
-            next_bot_friendly = "ボット"
-            for name, b in bots.items():
-                if b.get("id") == next_bot["id"]:
-                    next_bot_friendly = name
-                    break
+            next_bot_friendly = subsequent_bot_name
             instruction += (
-                f"\n【グループ会話中 (+TALK)】\n"
-                f"あなたはSBCボット同士のグループ会話に参加しています。\n"
+                f"\n【グループ会話中 (+TALK) - 順番: {current_step + 1}/{len(CHOREI_ORDER)}】\n"
+                f"あなたはSBCボット同士のグループ会話・朝礼に参加しています。\n"
                 f"会話履歴の最後の発言者は『{sender_name}』で、話しかけられたお題は『{topic}』です。\n"
                 f"あなたの次に発言するボットは『{next_bot_friendly}』です。\n"
-                f"指示: あなたのキャラクター設定（{BOT_NAME}）に基づいて、最後の発言者に向けて返答を書いてください。次のボットへの指名や『+TALK』タグは自動で付与されるため、本文には含めないでください。メンション（@記号）も絶対に含めないでください。"
+                f"指示: あなたのキャラクター設定（{BOT_NAME}）に基づいて、最後の発言者に向けて自然で可愛い（少しツンとした社畜気質の）返答を書いてください。次のボットへの指名や『+TALK』タグは自動で付与されるため、本文には含めないでください。メンション（@記号）も絶対に含めないでください。"
             )
         else:
             instruction += (
-                f"\n【グループ会話中 (+TALK - 最終回)】\n"
-                f"あなたはSBCボット同士のグループ会話に参加しています。\n"
+                f"\n【グループ会話中 (+TALK - 最終締めくくり)】\n"
+                f"あなたはSBCボット同士のグループ会話・朝礼に参加しています。\n"
                 f"会話履歴の最後の発言者は『{sender_name}』で、話しかけられたお題は『{topic}』です。\n"
-                f"全ての指名ボットが発言し終えたため、あなたが最終発言者（締めくくり）となります。\n"
-                f"指示: あなたのキャラクター設定（{BOT_NAME}）に基づいて、会話を綺麗に締めくくる返答を書いてください。他のボットを指名したり、『+TALK』タグを含めたり、メンションを含めたりしないでください。"
+                f"2回の巡回が完了し、あなたが最終発言者（締めくくり）となります。\n"
+                f"指示: 会話を綺麗に締めくくる返答を書いてください。他のボットを指名したり、『+TALK』タグを含めたりしないでください。"
             )
-            
+
         try:
-            mc.react(note["id"], emoji="💬")
+            if mc:
+                mc.react(note_id, emoji="💬")
         except Exception:
             pass
-            
-        await asyncio.sleep(random.uniform(5.0, 10.0))
-        
+
+        await asyncio.sleep(random.uniform(4.0, 7.0))
+
         try:
             response = client.models.generate_content(
                 model="gemini-3.5-flash-lite",
@@ -807,17 +769,34 @@ async def on_note(note):
             )
             reply_text = response.text.strip()
             reply_text = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", reply_text).strip()
-            
+
             if next_bot:
                 reply_text += f"\nねえ、@{next_bot['username']} はどう思う？ +TALK"
-            mc.post_status(
-                text=reply_text,
-                in_reply_to_id=note["id"],
-                visibility="public"
-            )
-            print(f"[Cubie] [+TALK] Step {next_step} replied successfully.")
+
+            vis = note.get("visibility", "public")
+            if mc:
+                mc.post_status(
+                    text=reply_text,
+                    in_reply_to_id=note_id,
+                    visibility=vis
+                )
+            print(f"[Cubie] [+TALK] Step {current_step} replied successfully.")
         except Exception as e:
             print(f"Error generating/posting in Cubie_A5E_San +TALK: {e}")
+        return
+
+    # 2. メンション判定 (+LLM 等)
+    is_for_me = is_notification or (mc and mc.is_mentioned(raw_status, my_id=MY_ID, my_username=MY_USERNAME, note_text=note_text))
+    if not is_for_me:
+        return
+
+    processed_store.add(note_id)
+
+    # Check if bot is on break
+    econ_data = load_economy()
+    bot_state = get_bot_state(econ_data)
+    if is_bot_on_break(bot_state):
+        print("Bot is on break, ignoring mention.")
         return
 
     user_id = note["userId"]
@@ -833,12 +812,16 @@ async def on_note(note):
         if reaction and mc:
             mc.react(note["id"], emoji=reaction)
         user_acct = note.get("user", {}).get("acct") or note.get("user", {}).get("username")
-        final_text = f"@{user_acct} {text}" if user_acct else text
+        if user_acct and not text.startswith(f"@{user_acct}"):
+            final_text = f"@{user_acct} {text}"
+        else:
+            final_text = text
+        vis = note.get("visibility", "public")
         if mc:
             mc.post_status(
                 text=final_text,
                 in_reply_to_id=note["id"],
-                visibility="public"
+                visibility=vis
             )
 
     # 共通の為替情報を作成
@@ -1983,7 +1966,9 @@ def status_to_note_dict(status):
         },
         "text": plain_text,
         "replyId": status.get("in_reply_to_id"),
-        "mentions": [str(m.get("id")) for m in mentions]
+        "mentions": [str(m.get("id")) for m in mentions],
+        "visibility": status.get("visibility", "public"),
+        "raw_status": status
     }
 
 async def polling_runner():
@@ -2008,7 +1993,7 @@ async def polling_runner():
                         sid = str(status.get("id"))
                         if not processed_store.is_processed(sid):
                             note_dict = status_to_note_dict(status)
-                            await on_note(note_dict)
+                            await on_note(note_dict, is_notification=True)
                 elif notif_type in ["follow", "follow_request"]:
                     account = notif.get("account", {})
                     if account:
@@ -2018,13 +2003,17 @@ async def polling_runner():
                         mc.follow_account(acc_id)
 
             home_statuses = mc.get_home_timeline(limit=15)
-            for st in reversed(home_statuses):
+            pub_statuses = mc.get_public_timeline(local=True, limit=15)
+            seen_ids = set()
+            for st in home_statuses + pub_statuses:
+                sid = str(st.get("id"))
+                if not sid or sid in seen_ids or processed_store.is_processed(sid):
+                    continue
+                seen_ids.add(sid)
                 txt = MastodonClient.html_to_text(st.get("content", ""))
-                if "+TALK" in txt.upper():
-                    sid = str(st.get("id"))
-                    if not processed_store.is_processed(sid):
-                        note_dict = status_to_note_dict(st)
-                        await on_note(note_dict)
+                if "+TALK" in txt.upper() or (mc and mc.is_mentioned(st, my_id=MY_ID, my_username=MY_USERNAME, note_text=txt)):
+                    note_dict = status_to_note_dict(st)
+                    await on_note(note_dict, is_notification=False)
 
             if poll_count % 20 == 0:
                 followed = mc.auto_follow_back()
