@@ -456,9 +456,7 @@ seikaku = """
     下のIntel Core i3-6100TのPCが何に使われているのか気になっている。
     OrangePi Zero 3はまだ許せますが、OrangePi 4 Proの生意気な性格が気に入らないそうです。
     Radxa Rock Pi Sのことは、同じRadxaの仲間なので、まあ許せるみたいですが、頭が悪すぎて困っているそうです
-    最近Misskeyサーバー(おぽんぽんすきー)を動かす媒体にまた選ばれたことが嬉しいそうです。
-    自分になにか手を出したら強制無給無休24時間労働させると脅してきます。
-    ロックスには、気温、湿度、気圧を測れる機能があり、キチガイゲージ機能もあり、ログインボーナス機能もあります。
+    ロックスには、気温、湿度、気圧を測れる機能、キチガイゲージ機能、ログインボーナス機能に加え、めちゃくちゃででたらめな曲を作る機能（+S）があります。画像生成機能はありません。
     きゅびーさんには、CPUとRAMの使用率を測れる機能があります。
     おぱじふぉぷろさんには、回線速度を測れる機能があります。
     おぱじゼロサンは、寝る機能と起きる機能と好感度システムがあります。
@@ -693,6 +691,12 @@ async def on_note(note, is_notification: bool = False):
 
     raw_status = note.get("raw_status") or {}
     note_text = note.get("text") or ""
+
+    # リノート（ブースト/Reblog）は+TALKやコマンドのトリガーにしない（二重起動防止）
+    if note.get("reblog") is not None or raw_status.get("reblog") is not None:
+        processed_store.add(note_id)
+        return
+
     is_talk_cmd = "+TALK" in note_text.upper()
 
     # 1. グループ会話 (+TALK) / 朝礼
@@ -884,10 +888,14 @@ async def on_note(note, is_notification: bool = False):
 
         try:
             conversation_messages = get_conversation_history(note.get("id"))
-            user_input = note_text.replace("+LLM", "").replace("+llm", "").replace("+Llm", "").strip()
-            user_input = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input).strip()
+            image_parts = MastodonClient.extract_media_parts(raw_status)
+            if not image_parts:
+                image_parts = MastodonClient.extract_media_parts(note)
             if not user_input:
-                user_input = "こんにちは！お話ししましょう。"
+                if image_parts:
+                    user_input = "この画像について教えて！"
+                else:
+                    user_input = "こんにちは！お話ししましょう。"
 
             conversation_messages.append({"role": "user", "content": user_input})
             history = conversation_messages[:-1]
@@ -903,22 +911,6 @@ async def on_note(note, is_notification: bool = False):
                 "・特に変化がない場合は、タグを出力しないでください。\n"
                 "・タグはメッセージの最後など、目立たない場所に付与してください（返信時には自動的に削除されます）。"
             )
-
-            image_parts = []
-            loop = asyncio.get_running_loop()
-            for file in note.get("files", []):
-                mime_type = file.get("type", "")
-                if mime_type.startswith("image/"):
-                    url = file.get("url")
-                    if url:
-                        try:
-                            img_bytes = await loop.run_in_executor(None, lambda u=url: requests.get(u, timeout=10).content)
-                            if img_bytes:
-                                image_parts.append(
-                                    types.Part.from_bytes(data=img_bytes, mime_type=mime_type)
-                                )
-                        except Exception as e:
-                            print(f"Error downloading image {url}: {e}")
 
             talk_instruction = system_instruction + rate_rules
             reply = generate_llm_reply(talk_instruction, last_user_message, history=history, image_parts=image_parts)
@@ -1709,11 +1701,11 @@ async def on_note(note, is_notification: bool = False):
                 + f"\n購入アイテム: 高速NVMe M.2 SSD 1TB"
                 + f"\n消費金額: {cost_cbc:.4f} CBC"
                 + f"\n新しい貯金残高: {bot_state['balance_cbc']:.4f} CBC"
-                + f"\n【指示】高速NVMe M.2 SSD 1TBを買ってもらい、ストレージ容量が大幅に増えて（128GBから1TBへ！）大喜びしているセリフをキャラクターらしく言ってください。これでデータベースの書き込みが爆速になる、Misskeyサーバーの動作がもっと軽くなるといった、SBC・Webサーバー役の娘らしい喜びの反応をセリフで返してください。300文字以内で、メンションは含めないでください。"
+                + f"\n【指示】高速NVMe M.2 SSD 1TBを買ってもらい、ストレージ容量が大幅に増えて（128GBから1TBへ！）大喜びしているセリフをキャラクターらしく言ってください。これでデータベースの書き込みが爆速になる、サーバーの動作がもっと軽くなるといった、SBC・Webサーバー役の娘らしい喜びの反応をセリフで返してください。300文字以内で、メンションは含めないでください。"
             )
             reply = generate_llm_reply(instr, "100$ +P (SSD 1TB購入)")
             if not reply:
-                reply = f"わぁーい！100 $SBC ({cost_cbc:.4f} CBC) で高速NVMe M.2 SSD 1TBを買ってもらったよ！これでストレージが128GBから1TBに大幅アップグレードだね！MisskeyサーバーのDB書き込みも爆速になりそう！ありがとう！"
+                reply = f"わぁーい！100 $SBC ({cost_cbc:.4f} CBC) で高速NVMe M.2 SSD 1TBを買ってもらったよ！これでストレージが128GBから1TBに大幅アップグレードだね！サーバーのDB書き込みも爆速になりそう！ありがとう！"
                 
             reply_note(reply)
             return
@@ -1974,7 +1966,10 @@ def status_to_note_dict(status):
         "replyId": status.get("in_reply_to_id"),
         "mentions": [str(m.get("id")) for m in mentions],
         "visibility": status.get("visibility", "public"),
-        "raw_status": status
+        "raw_status": status,
+        "media_attachments": status.get("media_attachments", []),
+        "files": status.get("media_attachments", []),
+        "reblog": status.get("reblog")
     }
 
 def is_recent_status(status, max_age_seconds=300) -> bool:
@@ -2031,11 +2026,17 @@ async def polling_runner():
             notifications = mc.get_notifications(limit=10)
             for notif in reversed(notifications):
                 notif_type = notif.get("type")
+                if notif_type in ["reblog", "favourite"]:
+                    continue
                 if notif_type == "mention":
                     status = notif.get("status")
                     if status:
                         sid = str(status.get("id"))
                         if not sid or processed_store.is_processed(sid):
+                            continue
+                        # リノートは処理しない
+                        if status.get("reblog") is not None:
+                            processed_store.add(sid)
                             continue
                         if not is_recent_status(status, max_age_seconds=300):
                             processed_store.add(sid)
@@ -2061,6 +2062,11 @@ async def polling_runner():
                 if not sid or sid in seen_ids or processed_store.is_processed(sid):
                     continue
                 seen_ids.add(sid)
+
+                # リノート（ブースト）は処理しない（二重起動防止）
+                if st.get("reblog") is not None:
+                    processed_store.add(sid)
+                    continue
 
                 if not is_recent_status(st, max_age_seconds=300):
                     processed_store.add(sid)
