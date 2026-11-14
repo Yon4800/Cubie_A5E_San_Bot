@@ -3,4 +3,3 @@ google-genai
 schedule
 requests
 psutil
-matplotlib
