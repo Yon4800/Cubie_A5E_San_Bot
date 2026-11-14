@@ -8,12 +8,10 @@ from collections import OrderedDict
 from google import genai
 from google.genai import types
 import schedule
-from datetime import datetime, timedelta
+from datetime import datetime
 import random
 import re
 import tempfile
-import requests
-from typing import Optional, Dict, Any, List
 import threading
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 
