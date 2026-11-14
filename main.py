@@ -597,6 +597,8 @@ async def on_note(note, is_notification: bool = False):
             image_parts = MastodonClient.extract_media_parts(raw_status)
             if not image_parts:
                 image_parts = MastodonClient.extract_media_parts(note)
+            user_input = re.sub(r"\+LLM", "", note_text, flags=re.IGNORECASE).strip()
+            user_input = re.sub(r"@[\w\-\.]+(?:@[\w\-\.]+)?", "", user_input).strip()
             if not user_input:
                 if image_parts:
                     user_input = "この画像について教えて！"
